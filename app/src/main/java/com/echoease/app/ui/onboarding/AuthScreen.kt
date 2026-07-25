@@ -1,33 +1,68 @@
 package com.echoease.app.ui.onboarding
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(onAuthenticated: () -> Unit) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var isSignUp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val isPreview = LocalInspectionMode.current
     val auth = remember { if (isPreview) null else FirebaseAuth.getInstance() }
+    val context = LocalContext.current
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(ApiException::class.java)
+                val credential = GoogleAuthProvider.getCredential(account.idToken, null)
+                auth?.signInWithCredential(credential)?.addOnCompleteListener { signInTask ->
+                    isLoading = false
+                    if (signInTask.isSuccessful) {
+                        onAuthenticated()
+                    } else {
+                        error = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
+                    }
+                }
+            } catch (e: ApiException) {
+                isLoading = false
+                error = "Google Sign-In failed: ${e.message}"
+            }
+        } else {
+            isLoading = false
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets.systemBars
@@ -53,34 +88,12 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 color = MaterialTheme.colorScheme.secondary
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
-
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email") },
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Password") },
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                singleLine = true
-            )
+            Spacer(modifier = Modifier.height(80.dp))
 
             if (error != null) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier.padding(top = 16.dp).fillMaxWidth()
+                    modifier = Modifier.padding(bottom = 24.dp).fillMaxWidth()
                 ) {
                     Text(
                         text = error!!,
@@ -91,42 +104,60 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
+            // GOOGLE SIGN IN BUTTON
             Button(
                 onClick = {
-                    if (email.isBlank() || password.isBlank()) {
-                        error = "Please enter both email and password."
-                        return@Button
-                    }
-                    val currentAuth = auth
-                    if (currentAuth == null) {
-                        if (isPreview) onAuthenticated()
+                    if (isPreview) {
+                        onAuthenticated()
                         return@Button
                     }
                     isLoading = true
+                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                        .requestIdToken("YOUR_WEB_CLIENT_ID") // You must replace this with your client ID from Firebase Console
+                        .requestEmail()
+                        .build()
+                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                enabled = !isLoading,
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Using a simple person icon as a placeholder for Google icon
+                        Icon(Icons.Default.Person, contentDescription = null)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Continue with Google", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // GUEST SIGN IN BUTTON
+            OutlinedButton(
+                onClick = {
+                    if (auth == null) {
+                        if (isPreview) onAuthenticated()
+                        return@OutlinedButton
+                    }
+                    isLoading = true
                     error = null
-                    scope.launch {
-                        if (isSignUp) {
-                            currentAuth.createUserWithEmailAndPassword(email.trim(), password)
-                                .addOnCompleteListener { task ->
-                                    isLoading = false
-                                    if (task.isSuccessful) {
-                                        onAuthenticated()
-                                    } else {
-                                        error = task.exception?.localizedMessage ?: "Sign up failed."
-                                    }
-                                }
+                    auth.signInAnonymously().addOnCompleteListener { task ->
+                        isLoading = false
+                        if (task.isSuccessful) {
+                            onAuthenticated()
                         } else {
-                            currentAuth.signInWithEmailAndPassword(email.trim(), password)
-                                .addOnCompleteListener { task ->
-                                    isLoading = false
-                                    if (task.isSuccessful) {
-                                        onAuthenticated()
-                                    } else {
-                                        error = task.exception?.localizedMessage ?: "Login failed. Check your password."
-                                    }
-                                }
+                            error = "Guest login failed: ${task.exception?.localizedMessage}"
                         }
                     }
                 },
@@ -136,56 +167,13 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 enabled = !isLoading,
                 shape = MaterialTheme.shapes.large
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
-                } else {
-                    Text(if (isSignUp) "Create Account" else "Enter EchoEase", style = MaterialTheme.typography.titleMedium)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            TextButton(
-                onClick = { isSignUp = !isSignUp },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading
-            ) {
-                Text(
-                    if (isSignUp) "Already have an account? Login" else "Don't have an account? Sign Up",
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            TextButton(
-                onClick = {
-                    val currentAuth = auth
-                    if (currentAuth == null) {
-                        if (isPreview) onAuthenticated()
-                        return@TextButton
-                    }
-                    isLoading = true
-                    error = null
-                    currentAuth.signInAnonymously().addOnCompleteListener { task ->
-                        isLoading = false
-                        if (task.isSuccessful) {
-                            onAuthenticated()
-                        } else {
-                            error = "Anonymous login failed: ${task.exception?.localizedMessage}"
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading
-            ) {
-                Text("Continue as Guest", color = MaterialTheme.colorScheme.outline)
+                Text("Continue as Guest", style = MaterialTheme.typography.titleMedium)
             }
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(48.dp))
             
             Text(
-                "Tip: Ensure 'Email/Password' and 'Anonymous' providers are enabled in your Firebase Console.",
+                "Secure, private, and peer-to-peer.\nBy continuing, you agree to building peace.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
