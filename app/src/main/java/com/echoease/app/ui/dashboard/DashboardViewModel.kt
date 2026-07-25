@@ -12,7 +12,11 @@ import kotlinx.coroutines.launch
 
 sealed class DashboardState {
     object Loading : DashboardState()
-    data class Success(val incidents: List<ConfirmedIncident>, val strikeLevel: Int) : DashboardState()
+    data class Success(
+        val myIncidents: List<ConfirmedIncident>,
+        val flaggedByMe: List<ConfirmedIncident>,
+        val strikeLevel: Int
+    ) : DashboardState()
     data class Error(val message: String) : DashboardState()
 }
 
@@ -38,8 +42,13 @@ class DashboardViewModel : ViewModel() {
                     return@launch
                 }
                 
-                val incidents = repository.getConfirmedIncidents(profile.roomId)
-                _state.value = DashboardState.Success(incidents, incidents.size)
+                val roomId = profile.roomId
+                val myIncidents = repository.getConfirmedIncidents(roomId)
+                val flaggedByMe = repository.getIncidentsByFlagger(roomId)
+                
+                val strikeLevel = myIncidents.size
+                
+                _state.value = DashboardState.Success(myIncidents, flaggedByMe, strikeLevel)
             } catch (e: Exception) {
                 _state.value = DashboardState.Error(e.message ?: "Failed to load dashboard")
             }

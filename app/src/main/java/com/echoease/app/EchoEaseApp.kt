@@ -1,17 +1,15 @@
 package com.echoease.app
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -26,8 +24,9 @@ import com.echoease.app.ui.onboarding.AuthScreen
 import com.echoease.app.ui.onboarding.BuildingSelectionScreen
 import com.echoease.app.ui.onboarding.RoomSelectionScreen
 import com.echoease.app.ui.theme.MyApplicationTheme
-import com.echoease.app.util.AppConstants
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import java.util.Date
 
 @Composable
 fun EchoEaseApp() {
@@ -61,58 +60,116 @@ fun MainContent() {
     val backStack = remember { mutableStateListOf<Screen>(initialScreen) }
     val currentScreen = backStack.lastOrNull()
     var userRole by remember { mutableStateOf("resident") }
+    var userRoomId by remember { mutableStateOf<String?>(null) }
+    var activeNudge by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
             val repository = RoomRepository()
-            userRole = repository.getUserProfile(uid)?.role ?: "resident"
+            val profile = repository.getUserProfile(uid)
+            userRole = profile?.role ?: "resident"
+            userRoomId = profile?.roomId
+            
+            // AUTO-REDIRECT IF ROOM IS NOT SET
+            if (profile?.roomId.isNullOrEmpty() && currentScreen !is Screen.BuildingSelection && currentScreen !is Screen.RoomSelection) {
+                backStack.clear()
+                backStack.add(Screen.BuildingSelection)
+            }
         }
     }
 
-    if (currentScreen is Screen.Auth || currentScreen is Screen.BuildingSelection || currentScreen is Screen.RoomSelection) {
-        AppNavHost(backStack)
-    } else {
-        NavigationSuiteScaffold(
-            navigationSuiteItems = {
-                item(
-                    selected = currentScreen is Screen.Home,
-                    onClick = { 
-                        if (currentScreen !is Screen.Home) {
-                            backStack.clear()
-                            backStack.add(Screen.Home)
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("Home") }
-                )
-                item(
-                    selected = currentScreen is Screen.Dashboard,
-                    onClick = { 
-                        if (currentScreen !is Screen.Dashboard) {
-                            backStack.clear()
-                            backStack.add(Screen.Dashboard)
-                        }
-                    },
-                    icon = { Icon(Icons.Default.Assessment, contentDescription = "Dashboard") },
-                    label = { Text("Status") }
-                )
-                if (userRole == "admin") {
+    // REAL-TIME NUDGE LISTENER
+    LaunchedEffect(userRoomId) {
+        if (userRoomId != null) {
+            val db = FirebaseFirestore.getInstance()
+            db.collection("confirmedIncidents")
+                .whereEqualTo("roomId", userRoomId)
+                .whereGreaterThan("timestamp", com.google.firebase.Timestamp(Date(System.currentTimeMillis() - 600000))) // Last 10 mins
+                .addSnapshotListener { snapshot, _ ->
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        activeNudge = "Community Notice: Multiple neighbors have flagged noise in your sector. Please keep it down. 🤫"
+                    }
+                }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (currentScreen is Screen.Auth || currentScreen is Screen.BuildingSelection || currentScreen is Screen.RoomSelection) {
+            AppNavHost(backStack)
+        } else {
+            NavigationSuiteScaffold(
+                navigationSuiteItems = {
                     item(
-                        selected = currentScreen is Screen.Admin,
-                        onClick = {
-                            if (currentScreen !is Screen.Admin) {
+                        selected = currentScreen is Screen.Home,
+                        onClick = { 
+                            if (currentScreen !is Screen.Home) {
                                 backStack.clear()
-                                backStack.add(Screen.Admin)
+                                backStack.add(Screen.Home)
                             }
                         },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Admin") },
-                        label = { Text("Admin") }
+                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                        label = { Text("Home") }
                     )
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.background
+                    item(
+                        selected = currentScreen is Screen.Dashboard,
+                        onClick = { 
+                            if (currentScreen !is Screen.Dashboard) {
+                                backStack.clear()
+                                backStack.add(Screen.Dashboard)
+                            }
+                        },
+                        icon = { Icon(Icons.Default.Assessment, contentDescription = "Dashboard") },
+                        label = { Text("Status") }
+                    )
+                    if (userRole == "admin") {
+                        item(
+                            selected = currentScreen is Screen.Admin,
+                            onClick = {
+                                if (currentScreen !is Screen.Admin) {
+                                    backStack.clear()
+                                    backStack.add(Screen.Admin)
+                                }
+                            },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = "Admin") },
+                            label = { Text("Admin") }
+                        )
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.background
+            ) {
+                AppNavHost(backStack)
+            }
+        }
+
+        // NUDGE BANNER
+        AnimatedVisibility(
+            visible = activeNudge != null,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut()
         ) {
-            AppNavHost(backStack)
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(16.dp).statusBarsPadding(),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 8.dp,
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.NotificationsActive, null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = activeNudge ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { activeNudge = null }) {
+                        Icon(Icons.Default.Close, null)
+                    }
+                }
+            }
         }
     }
 }
@@ -143,10 +200,19 @@ fun AppNavHost(backStack: SnapshotStateList<Screen>) {
                     })
                 }
                 is Screen.Home -> NavEntry(key) {
-                    HomeScreen(onNavigateToDashboard = {
-                        backStack.clear()
-                        backStack.add(Screen.Dashboard)
-                    })
+                    HomeScreen(
+                        onNavigateToDashboard = {
+                            backStack.clear()
+                            backStack.add(Screen.Dashboard)
+                        },
+                        onLogout = {
+                            backStack.clear()
+                            backStack.add(Screen.Auth)
+                        },
+                        onNavigateToOnboarding = {
+                            backStack.add(Screen.BuildingSelection)
+                        }
+                    )
                 }
                 is Screen.Dashboard -> NavEntry(key) {
                     DashboardScreen()

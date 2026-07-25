@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echoease.app.data.model.ConfirmedIncident
@@ -25,6 +28,11 @@ import java.util.*
 fun DashboardScreen(viewModel: DashboardViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val mediaPlayer = remember { android.media.MediaPlayer() }
+
+    DisposableEffect(Unit) {
+        onDispose { mediaPlayer.release() }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -51,8 +59,19 @@ fun DashboardScreen(viewModel: DashboardViewModel = viewModel()) {
                 is DashboardState.Success -> {
                     val successState = state as DashboardState.Success
                     DashboardContent(
-                        incidents = successState.incidents,
-                        strikeLevel = successState.strikeLevel
+                        myIncidents = successState.myIncidents,
+                        flaggedByMe = successState.flaggedByMe,
+                        strikeLevel = successState.strikeLevel,
+                        onPlayProof = { url ->
+                            try {
+                                mediaPlayer.reset()
+                                mediaPlayer.setDataSource(url)
+                                mediaPlayer.prepare()
+                                mediaPlayer.start()
+                            } catch (e: Exception) {
+                                // Handle error
+                            }
+                        }
                     )
                 }
             }
@@ -62,9 +81,12 @@ fun DashboardScreen(viewModel: DashboardViewModel = viewModel()) {
 
 @Composable
 fun DashboardContent(
-    incidents: List<ConfirmedIncident>,
-    strikeLevel: Int
+    myIncidents: List<ConfirmedIncident>,
+    flaggedByMe: List<ConfirmedIncident>,
+    strikeLevel: Int,
+    onPlayProof: (String) -> Unit
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) }
     val (tone, color) = when {
         strikeLevel <= 1 -> "Quiet & Peaceful. You're doing great!" to MaterialTheme.colorScheme.primary
         strikeLevel == 2 -> "Awareness: Neighbors have noticed occasional noise." to Color(0xFFFBC02D)
@@ -112,15 +134,28 @@ fun DashboardContent(
         }
 
         item {
-            Text(
-                text = "History (30-Day Window)",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Transparent,
+                divider = {}
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("My Reminders") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Reports I Sent") }
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        if (incidents.isEmpty()) {
+        val displayList = if (selectedTab == 0) myIncidents else flaggedByMe
+
+        if (displayList.isEmpty()) {
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -128,7 +163,7 @@ fun DashboardContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        "No incidents on record. Your space is tranquil!",
+                        if (selectedTab == 0) "No incidents on record. Your space is tranquil!" else "No flags sent recently. Community is quiet.",
                         modifier = Modifier.padding(24.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -136,8 +171,8 @@ fun DashboardContent(
                 }
             }
         } else {
-            items(incidents) { incident ->
-                IncidentItem(incident)
+            items(displayList) { incident ->
+                IncidentItem(incident, onPlayProof, isSentByMe = selectedTab == 1)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), thickness = 0.5.dp)
             }
         }
@@ -186,34 +221,73 @@ fun EscalationLadder(strikeLevel: Int, activeColor: Color) {
 }
 
 @Composable
-fun IncidentItem(incident: ConfirmedIncident) {
+fun IncidentItem(incident: ConfirmedIncident, onPlayProof: (String) -> Unit, isSentByMe: Boolean = false) {
     val sdf = SimpleDateFormat("EEEE, MMM dd • hh:mm a", Locale.getDefault())
     ListItem(
         headlineContent = { 
             Text(
-                "Confirmed Disturbance", 
+                if (isSentByMe) "Neighbor Awareness Nudge" else "Confirmed Disturbance", 
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold 
             ) 
         },
         supportingContent = { 
-            Text(
-                sdf.format(Date(incident.timestamp)),
-                style = MaterialTheme.typography.bodySmall 
-            ) 
+            Column {
+                Text(
+                    sdf.format(Date(incident.timestamp)),
+                    style = MaterialTheme.typography.bodySmall 
+                )
+                if (incident.isWardenEscalated) {
+                    Text(
+                        "⚠️ WARDEN ESCALATED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                if (incident.audioProofUrl != null) {
+                    TextButton(
+                        onClick = { onPlayProof(incident.audioProofUrl) },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Listen to proof", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
         },
         leadingContent = {
+            val tint = if (isSentByMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            val container = if (isSentByMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+            
             Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
+                color = container,
                 shape = MaterialTheme.shapes.small
             ) {
                 Icon(
-                    Icons.Default.Warning, 
+                    if (isSentByMe) Icons.Default.CheckCircle else Icons.Default.Warning, 
                     null, 
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = tint,
                     modifier = Modifier.padding(8.dp).size(20.dp)
                 )
             }
         }
     )
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DashboardContentPreview() {
+    MaterialTheme {
+        DashboardContent(
+            myIncidents = listOf(
+                ConfirmedIncident(id = "1", timestamp = System.currentTimeMillis() - 86400000),
+                ConfirmedIncident(id = "2", timestamp = System.currentTimeMillis() - 172800000, isWardenEscalated = true)
+            ),
+            flaggedByMe = emptyList(),
+            strikeLevel = 2,
+            onPlayProof = {}
+        )
+    }
 }

@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
@@ -24,7 +25,8 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val auth = FirebaseAuth.getInstance()
+    val isPreview = LocalInspectionMode.current
+    val auth = remember { if (isPreview) null else FirebaseAuth.getInstance() }
 
     Scaffold(
         contentWindowInsets = WindowInsets.systemBars
@@ -96,15 +98,20 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                         error = "Please enter both email and password."
                         return@Button
                     }
+                    val currentAuth = auth
+                    if (currentAuth == null) {
+                        if (isPreview) onAuthenticated()
+                        return@Button
+                    }
                     isLoading = true
                     error = null
                     scope.launch {
-                        auth.signInWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
+                        currentAuth.signInWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
                             if (task.isSuccessful) {
                                 onAuthenticated()
                             } else {
                                 // Try signing up if sign in fails (useful for new users)
-                                auth.createUserWithEmailAndPassword(email.trim(), password).addOnCompleteListener { signUpTask ->
+                                currentAuth.createUserWithEmailAndPassword(email.trim(), password).addOnCompleteListener { signUpTask ->
                                     isLoading = false
                                     if (signUpTask.isSuccessful) {
                                         onAuthenticated()
@@ -133,9 +140,14 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
 
             TextButton(
                 onClick = {
+                    val currentAuth = auth
+                    if (currentAuth == null) {
+                        if (isPreview) onAuthenticated()
+                        return@TextButton
+                    }
                     isLoading = true
                     error = null
-                    auth.signInAnonymously().addOnCompleteListener { task ->
+                    currentAuth.signInAnonymously().addOnCompleteListener { task ->
                         isLoading = false
                         if (task.isSuccessful) {
                             onAuthenticated()

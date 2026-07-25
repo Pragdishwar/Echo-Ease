@@ -41,13 +41,25 @@ private val LightColorScheme = lightColorScheme(
     onTertiaryContainer = OnTertiaryContainerLight
 )
 
+private val MidnightColorScheme = darkColorScheme(
+    primary = MidnightPrimary,
+    background = MidnightBackground,
+    surface = MidnightSurface,
+    onBackground = MidnightOnBackground,
+    onSurface = MidnightOnBackground
+)
+
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false, // Changed from true to false to disable Material You overrides
     content: @Composable () -> Unit
 ) {
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    val isMidnightHour = hour >= 22 || hour < 6
+
     val colorScheme = when {
+        isMidnightHour -> MidnightColorScheme
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

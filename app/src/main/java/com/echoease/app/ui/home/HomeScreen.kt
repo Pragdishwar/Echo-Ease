@@ -2,15 +2,12 @@ package com.echoease.app.ui.home
 
 import android.Manifest
 import android.content.pm.PackageManager
-import com.echoease.app.util.AudioAnalyzer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,24 +15,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.echoease.app.ui.components.LiveWaveform
+import com.echoease.app.util.AudioAnalyzer
+import com.echoease.app.util.AudioRecorder
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateToDashboard: () -> Unit,
+    onLogout: () -> Unit,
+    onNavigateToOnboarding: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var showAmbientCheck by remember { mutableStateOf(false) }
     
     val audioAnalyzer = remember { AudioAnalyzer() }
+    val audioRecorder = remember { AudioRecorder(context) }
     val currentDb by audioAnalyzer.decibels.collectAsState()
     val scope = rememberCoroutineScope()
+
+    var isRecording by remember { mutableStateOf(false) }
+    var recordProgress by remember { mutableFloatStateOf(0f) }
+    var hasSample by remember { mutableStateOf(false) }
+
+    // REFRESH PROFILE WHEN SCREEN LOADS
+    LaunchedEffect(Unit) {
+        viewModel.loadProfile()
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -49,6 +66,7 @@ fun HomeScreen(
     DisposableEffect(showAmbientCheck) {
         onDispose {
             audioAnalyzer.stop()
+            audioRecorder.cleanup()
         }
     }
 
@@ -74,171 +92,321 @@ fun HomeScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { 
-                    Text(
-                        "EchoEase", 
-                        fontWeight = FontWeight.Black,
-                        style = MaterialTheme.typography.headlineMedium
-                    ) 
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToDashboard) {
-                        Icon(
-                            Icons.Default.Assessment, 
-                            contentDescription = "My Room History",
-                            tint = MaterialTheme.colorScheme.primary
+            // Keep the TopBar minimal or remove if we want it strictly like the image
+            // Let's keep a very simple one for the Room display
+            if (userProfile != null) {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            "Room ${userProfile?.roomId ?: "Not Set"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+            }
         },
         contentWindowInsets = WindowInsets.systemBars
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = "Is it too loud?",
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Text(
-                text = "Securely flag disturbances. We'll notify neighbors if the consensus logic confirms the noise source.",
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(modifier = Modifier.height(56.dp))
-            
-            Box(contentAlignment = Alignment.Center) {
-                if (state is HomeState.Loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(180.dp),
-                        strokeWidth = 12.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                } else {
-                    LargeFloatingActionButton(
-                        onClick = { viewModel.flagNoise() },
-                        modifier = Modifier.size(180.dp),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        shape = FloatingActionButtonDefaults.largeShape
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.NotificationsActive, 
-                                null, 
-                                modifier = Modifier.size(72.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "FLAG NOW", 
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
+        HomeContent(
+            padding = padding,
+            isLoading = state is HomeState.Loading,
+            onFlagNoise = { 
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                viewModel.flagNoise(audioRecorder.getFile()) 
+            },
+            onAmbientCheck = {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                when (PackageManager.PERMISSION_GRANTED) {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) -> {
+                        showAmbientCheck = true
+                        audioAnalyzer.start(scope)
+                    }
+                    else -> {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
+            },
+            onSelectRoom = onNavigateToOnboarding,
+            onNavigateToHistory = onNavigateToDashboard,
+            onProfileClick = {
+                // Logout for now as profile action
+                viewModel.signOut()
+                onLogout()
             }
-            
-            Spacer(modifier = Modifier.height(64.dp))
+        )
 
-            OutlinedButton(
-                onClick = {
-                    when (PackageManager.PERMISSION_GRANTED) {
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) -> {
-                            showAmbientCheck = true
-                            audioAnalyzer.start(scope)
-                        }
-                        else -> {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
+        if (showAmbientCheck) {
+            AlertDialog(
+                onDismissRequest = { 
+                    showAmbientCheck = false
+                    audioAnalyzer.stop()
+                    audioRecorder.cleanup()
+                    isRecording = false
+                    hasSample = false
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Icon(Icons.Default.Mic, null)
-                Spacer(Modifier.width(12.dp))
-                Text("AMBIENT CHECK", fontWeight = FontWeight.Bold)
-            }
-
-            if (showAmbientCheck) {
-                AlertDialog(
-                    onDismissRequest = { 
+                confirmButton = {
+                    Button(onClick = { 
                         showAmbientCheck = false
                         audioAnalyzer.stop()
-                    },
-                    confirmButton = {
-                        Button(onClick = { 
-                            showAmbientCheck = false
-                            audioAnalyzer.stop()
-                        }) { Text("OK") }
-                    },
-                    title = { Text("Environment Check") },
-                    text = {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.fillMaxWidth().padding(16.dp)
-                        ) {
-                            Text(
-                                String.format("%.1f dB", currentDb), 
-                                style = MaterialTheme.typography.displayLarge,
-                                color = MaterialTheme.colorScheme.secondary,
-                                fontWeight = FontWeight.Black
+                        audioRecorder.cleanup()
+                        isRecording = false
+                        hasSample = false
+                    }) { Text("DONE") }
+                },
+                title = { Text("Environment Check") },
+                text = {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    ) {
+                        Text(
+                            String.format("%.1f dB", currentDb), 
+                            style = MaterialTheme.typography.displayLarge,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Black
+                        )
+                        
+                        LiveWaveform(db = currentDb)
+
+                        Text(
+                            if (currentDb < 60) "Ambient level is currently SAFE." else "Warning: Elevated noise levels detected.", 
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        if (isRecording) {
+                            LinearProgressIndicator(
+                                progress = { recordProgress },
+                                modifier = Modifier.fillMaxWidth().height(8.dp),
+                                color = MaterialTheme.colorScheme.error
                             )
-                            Text(
-                                if (currentDb < 60) "Ambient level is currently SAFE." else "Warning: Elevated noise levels detected.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center
-                            )
+                            Text("Recording sample...", style = MaterialTheme.typography.labelSmall)
+                        } else if (hasSample) {
+                            Button(
+                                onClick = { audioRecorder.playSample() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null)
+                                Text("PLAYBACK SAMPLE")
+                            }
+                            TextButton(onClick = { 
+                                hasSample = false
+                                // Let them re-record
+                            }) {
+                                Text("RE-RECORD")
+                            }
+                        } else {
+                            Button(
+                                onClick = { 
+                                    isRecording = true
+                                    hasSample = false
+                                    recordProgress = 0f
+                                    
+                                    // PAUSE ANALYZER TO RELEASE MIC HARDWARE
+                                    audioAnalyzer.stop()
+                                    
+                                    audioRecorder.startRecording()
+                                    scope.launch {
+                                        for (i in 1..50) {
+                                            delay(100)
+                                            recordProgress = i / 50f
+                                        }
+                                        audioRecorder.stopRecording()
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        isRecording = false
+                                        hasSample = true
+                                        
+                                        // RESUME ANALYZER
+                                        audioAnalyzer.start(this)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.FiberManualRecord, null)
+                                Text("RECORD 5s SAMPLE")
+                            }
                         }
                     }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun HomeContent(
+    padding: PaddingValues,
+    isLoading: Boolean,
+    onFlagNoise: () -> Unit,
+    onAmbientCheck: () -> Unit,
+    onSelectRoom: () -> Unit,
+    onNavigateToHistory: () -> Unit,
+    onProfileClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .padding(padding)
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        // HEADER FROM IMAGE
+        Text(
+            text = "EchoEase",
+            style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // SHIELD ICON
+        Box(
+            modifier = Modifier.size(80.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Shield,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+            )
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.secondary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Peaceful Living,\nRespectfully.",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        // MENU BUTTONS
+        MenuButton(
+            text = "Silent Flag",
+            icon = Icons.Default.NotificationsPaused,
+            isPrimary = true,
+            isLoading = isLoading,
+            onClick = onFlagNoise
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MenuButton(
+            text = "Select Room",
+            icon = Icons.Default.MeetingRoom,
+            onClick = onSelectRoom
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MenuButton(
+            text = "Ambient Sound Check",
+            icon = Icons.Default.GraphicEq,
+            onClick = onAmbientCheck
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MenuButton(
+            text = "History",
+            icon = Icons.Default.History,
+            onClick = onNavigateToHistory
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        MenuButton(
+            text = "Profile",
+            icon = Icons.Default.Person,
+            onClick = onProfileClick
+        )
+    }
+}
+
+@Composable
+fun MenuButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isPrimary: Boolean = false,
+    isLoading: Boolean = false,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = if (isPrimary) {
+            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        } else {
+            ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        border = if (!isPrimary) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = if (isPrimary) 4.dp else 0.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = if (isPrimary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(20.dp))
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "🛡️", 
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        "Consensus logic protects your identity. Nudges are only sent when multiple unique sources agree.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                }
-            }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun HomeContentPreview() {
+    MaterialTheme {
+        HomeContent(
+            padding = PaddingValues(0.dp),
+            isLoading = false,
+            onFlagNoise = {},
+            onAmbientCheck = {},
+            onSelectRoom = {},
+            onNavigateToHistory = {},
+            onProfileClick = {}
+        )
     }
 }

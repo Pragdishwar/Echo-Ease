@@ -10,9 +10,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echoease.app.data.model.BuildingConfig
+import com.echoease.app.data.model.Room
+import com.echoease.app.ui.components.FloorHeatmap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +33,8 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
-        }
+        },
+        contentWindowInsets = WindowInsets.systemBars
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             when (state) {
@@ -45,8 +49,11 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
                     }
                 }
                 is AdminState.Success -> {
+                    val successState = state as AdminState.Success
                     AdminContent(
-                        config = (state as AdminState.Success).config,
+                        config = successState.config,
+                        rooms = successState.rooms,
+                        incidentCounts = successState.incidentCounts,
                         onSave = { viewModel.updateConfig(it) }
                     )
                 }
@@ -58,6 +65,8 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
 @Composable
 fun AdminContent(
     config: BuildingConfig,
+    rooms: List<Room> = emptyList(),
+    incidentCounts: Map<String, Int> = emptyMap(),
     onSave: (BuildingConfig) -> Unit
 ) {
     var threshold by remember { mutableIntStateOf(config.consensusThreshold) }
@@ -78,6 +87,16 @@ fun AdminContent(
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(24.dp))
+
+        // HEATMAP SECTION
+        if (rooms.isNotEmpty()) {
+            FloorHeatmap(
+                rooms = rooms,
+                incidentCounts = incidentCounts,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)
+            )
+            HorizontalDivider(modifier = Modifier.padding(bottom = 32.dp))
+        }
 
         // Consensus Threshold
         Card(
@@ -164,5 +183,20 @@ fun AdminContent(
             Spacer(modifier = Modifier.width(8.dp))
             Text("SAVE CONFIGURATION")
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun AdminContentPreview() {
+    MaterialTheme {
+        AdminContent(
+            config = BuildingConfig(
+                consensusThreshold = 3,
+                escalationTiers = listOf(2, 3, 5),
+                wardenContact = "manager@echoease.com"
+            ),
+            onSave = {}
+        )
     }
 }

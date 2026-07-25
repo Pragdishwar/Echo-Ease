@@ -30,7 +30,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<HomeState>(HomeState.Idle)
     val state: StateFlow<HomeState> = _state.asStateFlow()
 
-    fun flagNoise() {
+    private val _userProfile = MutableStateFlow<com.echoease.app.data.model.UserProfile?>(null)
+    val userProfile: StateFlow<com.echoease.app.data.model.UserProfile?> = _userProfile.asStateFlow()
+
+    init {
+        loadProfile()
+    }
+
+    fun loadProfile() {
+        val currentUser = auth.currentUser ?: return
+        viewModelScope.launch {
+            _userProfile.value = repository.getUserProfile(currentUser.uid)
+        }
+    }
+
+    fun flagNoise(audioFile: java.io.File? = null) {
         val currentUser = auth.currentUser ?: return
         val now = System.currentTimeMillis()
 
@@ -52,6 +66,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
+                var audioUrl: String? = null
+                if (audioFile != null && audioFile.exists()) {
+                    audioUrl = repository.uploadAudioProof(audioFile, profile.buildingId)
+                }
+
                 val windowSize = AppConstants.CONSENSUS_WINDOW_MS
                 val timeWindow = (now / windowSize) * windowSize
 
@@ -61,7 +80,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     timeWindow = timeWindow
                 )
 
-                repository.flagNoise(flag, profile.buildingId)
+                repository.flagNoise(flag, profile.buildingId, audioUrl)
                 preferenceManager.updateLastFlagTimestamp(now)
                 _state.value = HomeState.Success
             } catch (e: Exception) {
@@ -72,5 +91,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetState() {
         _state.value = HomeState.Idle
+    }
+
+    fun signOut() {
+        auth.signOut()
     }
 }
