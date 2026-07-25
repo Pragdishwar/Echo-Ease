@@ -260,17 +260,17 @@ fun HomeContent(
         // HEADER FROM IMAGE
         Text(
             text = "EchoEase",
-            style = MaterialTheme.typography.displaySmall,
+            style = MaterialTheme.typography.headlineSmall, // Shrank from displaySmall
             fontWeight = FontWeight.Black,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 16.dp)
+            modifier = Modifier.padding(top = 8.dp)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 16dp
 
         // SHIELD ICON
         Box(
-            modifier = Modifier.size(80.dp),
+            modifier = Modifier.size(60.dp), // Shrank from 80dp
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -282,22 +282,22 @@ fun HomeContent(
             Icon(
                 Icons.Default.CheckCircle,
                 contentDescription = null,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(32.dp), // Shrank from 40dp
                 tint = MaterialTheme.colorScheme.secondary
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 16dp
 
         Text(
             text = "Peaceful Living,\nRespectfully.",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium, // Shrank from titleLarge
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface
         )
 
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(24.dp)) // Shrank from 40dp
 
         // MENU BUTTONS
         MenuButton(
@@ -308,7 +308,7 @@ fun HomeContent(
             onClick = onFlagNoise
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
 
         MenuButton(
             text = "Select Room",
@@ -316,7 +316,7 @@ fun HomeContent(
             onClick = onSelectRoom
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
 
         MenuButton(
             text = "Ambient Sound Check",
@@ -324,7 +324,7 @@ fun HomeContent(
             onClick = onAmbientCheck
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
 
         MenuButton(
             text = "History",
@@ -332,7 +332,7 @@ fun HomeContent(
             onClick = onNavigateToHistory
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
 
         MenuButton(
             text = "Profile",
@@ -354,7 +354,7 @@ fun MenuButton(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp),
+            .height(56.dp), // Shrank from 64dp
         shape = MaterialTheme.shapes.large,
         colors = if (isPrimary) {
             ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 fun AuthScreen(onAuthenticated: () -> Unit) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var isSignUp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -106,20 +107,26 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                     isLoading = true
                     error = null
                     scope.launch {
-                        currentAuth.signInWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                onAuthenticated()
-                            } else {
-                                // Try signing up if sign in fails (useful for new users)
-                                currentAuth.createUserWithEmailAndPassword(email.trim(), password).addOnCompleteListener { signUpTask ->
+                        if (isSignUp) {
+                            currentAuth.createUserWithEmailAndPassword(email.trim(), password)
+                                .addOnCompleteListener { task ->
                                     isLoading = false
-                                    if (signUpTask.isSuccessful) {
+                                    if (task.isSuccessful) {
                                         onAuthenticated()
                                     } else {
-                                        error = signUpTask.exception?.localizedMessage ?: "Authentication failed. Check your credentials or Firebase setup."
+                                        error = task.exception?.localizedMessage ?: "Sign up failed."
                                     }
                                 }
-                            }
+                        } else {
+                            currentAuth.signInWithEmailAndPassword(email.trim(), password)
+                                .addOnCompleteListener { task ->
+                                    isLoading = false
+                                    if (task.isSuccessful) {
+                                        onAuthenticated()
+                                    } else {
+                                        error = task.exception?.localizedMessage ?: "Login failed. Check your password."
+                                    }
+                                }
                         }
                     }
                 },
@@ -132,11 +139,24 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 if (isLoading) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                 } else {
-                    Text("Enter EchoEase", style = MaterialTheme.typography.titleMedium)
+                    Text(if (isSignUp) "Create Account" else "Enter EchoEase", style = MaterialTheme.typography.titleMedium)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = { isSignUp = !isSignUp },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) {
+                Text(
+                    if (isSignUp) "Already have an account? Login" else "Don't have an account? Sign Up",
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             TextButton(
                 onClick = {
