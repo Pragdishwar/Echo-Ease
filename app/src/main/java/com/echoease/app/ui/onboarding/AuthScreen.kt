@@ -113,7 +113,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                     }
                     isLoading = true
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestIdToken("YOUR_WEB_CLIENT_ID") // You must replace this with your client ID from Firebase Console
+                        .requestIdToken(context.getString(com.echoease.app.R.string.default_web_client_id))
                         .requestEmail()
                         .build()
                     val googleSignInClient = GoogleSignIn.getClient(context, gso)

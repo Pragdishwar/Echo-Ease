@@ -61,7 +61,26 @@ fun MainContent() {
     val currentScreen = backStack.lastOrNull()
     var userRole by remember { mutableStateOf("resident") }
     var userRoomId by remember { mutableStateOf<String?>(null) }
+    var userBuildingId by remember { mutableStateOf<String?>(null) }
     var activeNudge by remember { mutableStateOf<String?>(null) }
+
+    // AUTH PERSISTENCE LISTENER
+    DisposableEffect(auth) {
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            val user = firebaseAuth.currentUser
+            if (user != null && currentScreen is Screen.Auth) {
+                backStack.clear()
+                backStack.add(Screen.Home)
+            } else if (user == null && currentScreen !is Screen.Auth) {
+                backStack.clear()
+                backStack.add(Screen.Auth)
+            }
+        }
+        auth.addAuthStateListener(listener)
+        onDispose {
+            auth.removeAuthStateListener(listener)
+        }
+    }
 
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
