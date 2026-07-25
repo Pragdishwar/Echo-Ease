@@ -64,21 +64,24 @@ fun MainContent() {
     var userBuildingId by remember { mutableStateOf<String?>(null) }
     var activeNudge by remember { mutableStateOf<String?>(null) }
 
+    // DEBUG LOGGING FOR AUTH STATE
+    LaunchedEffect(auth.currentUser) {
+        android.util.Log.d("EchoEaseApp", "Auth State Changed: User=${auth.currentUser?.email}, Screen=$currentScreen")
+    }
+
     // AUTH PERSISTENCE LISTENER
-    DisposableEffect(auth) {
-        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+    LaunchedEffect(auth) {
+        auth.addAuthStateListener { firebaseAuth ->
             val user = firebaseAuth.currentUser
-            if (user != null && currentScreen is Screen.Auth) {
+            val current = backStack.lastOrNull()
+            
+            android.util.Log.d("EchoEaseApp", "Listener Triggered: User=${user?.email}, CurrentScreen=$current")
+            
+            if (user != null && current is Screen.Auth) {
+                android.util.Log.d("EchoEaseApp", "Navigating to Home via Listener")
                 backStack.clear()
                 backStack.add(Screen.Home)
-            } else if (user == null && currentScreen !is Screen.Auth) {
-                backStack.clear()
-                backStack.add(Screen.Auth)
             }
-        }
-        auth.addAuthStateListener(listener)
-        onDispose {
-            auth.removeAuthStateListener(listener)
         }
     }
 

@@ -23,6 +23,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import android.util.Log
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -42,25 +43,32 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        Log.d("AuthScreen", "Google Sign-In Result: ${result.resultCode}")
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
+                Log.d("AuthScreen", "Google account retrieved: ${account.email}")
                 val credential = GoogleAuthProvider.getCredential(account.idToken, null)
                 auth?.signInWithCredential(credential)?.addOnCompleteListener { signInTask ->
                     isLoading = false
                     if (signInTask.isSuccessful) {
+                        Log.d("AuthScreen", "Firebase sign-in successful")
                         onAuthenticated()
                     } else {
-                        error = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
+                        val msg = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
+                        Log.e("AuthScreen", "Firebase sign-in failed: $msg")
+                        error = msg
                     }
                 }
             } catch (e: ApiException) {
                 isLoading = false
+                Log.e("AuthScreen", "Google Sign-In failed API: ${e.statusCode}")
                 error = "Google Sign-In failed: ${e.message}"
             }
         } else {
             isLoading = false
+            Log.w("AuthScreen", "Google Sign-In cancelled or failed")
         }
     }
 
@@ -168,6 +176,18 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 shape = MaterialTheme.shapes.large
             ) {
                 Text("Continue as Guest", style = MaterialTheme.typography.titleMedium)
+            }
+
+            // RECOVERY BUTTON: Force Enter if Auth is already successful in background
+            if (auth?.currentUser != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { onAuthenticated() },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Text("Session Ready: Enter App", style = MaterialTheme.typography.titleMedium)
+                }
             }
             
             Spacer(modifier = Modifier.height(48.dp))
