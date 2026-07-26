@@ -234,7 +234,7 @@ fun AppNavHost(backStack: SnapshotStateList<Screen>) {
             when (key) {
                 is Screen.Auth -> NavEntry(key) {
                     AuthScreen(onAuthenticated = { 
-                        backStack.add(Screen.BuildingSelection) 
+                        // Let the central session observer in EchoEaseApp handle the routing!
                     })
                 }
                 is Screen.BuildingSelection -> NavEntry(key) {

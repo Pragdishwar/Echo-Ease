@@ -100,7 +100,11 @@ fun RoomSelectionScreen(
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(roomsOnFloor) { room ->
-                                    val displayName = room.name?.takeIf { it.isNotBlank() } ?: "Room ${room.id}"
+                                    val displayName = if (room.name.isNullOrBlank()) {
+                                        "Room ${room.id}"
+                                    } else {
+                                        "Room ${room.id}\n${room.name}"
+                                    }
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
