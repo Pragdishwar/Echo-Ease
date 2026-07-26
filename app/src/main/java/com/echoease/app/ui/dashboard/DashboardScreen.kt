@@ -237,6 +237,14 @@ fun IncidentItem(incident: ConfirmedIncident, onPlayProof: (String) -> Unit, isS
                     sdf.format(Date(incident.timestamp)),
                     style = MaterialTheme.typography.bodySmall 
                 )
+                if (isSentByMe) {
+                    Text(
+                        text = "Status: ${incident.status}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (incident.status == "Waiting") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (incident.isWardenEscalated) {
                     Text(
                         "⚠️ WARDEN ESCALATED",

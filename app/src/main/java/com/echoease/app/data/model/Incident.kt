@@ -11,5 +11,6 @@ data class ConfirmedIncident(
     val timestamp: Long = 0L,
     val severity: Int = 1,
     val audioProofUrl: String? = null,
-    val isWardenEscalated: Boolean = false // New field for escalation
+    val isWardenEscalated: Boolean = false, // New field for escalation
+    val status: String = "Confirmed"
 )

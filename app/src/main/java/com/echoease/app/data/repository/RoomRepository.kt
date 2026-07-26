@@ -206,7 +206,7 @@ class RoomRepository {
 
     suspend fun getIncidentsByFlagger(roomId: String): List<ConfirmedIncident> {
         return try {
-            firestore.collection("confirmedIncidents")
+            firestore.collection("flags")
                 .whereEqualTo("flaggerRoomId", roomId)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .get()
@@ -214,14 +214,28 @@ class RoomRepository {
                 .documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     val ts = data["timestamp"] as? com.google.firebase.Timestamp
+                    val timeWindow = data["timeWindow"] as? Long
+                    
+                    var status = "Waiting"
+                    if (timeWindow != null) {
+                        val confirmed = firestore.collection("confirmedIncidents")
+                            .whereEqualTo("timestamp", com.google.firebase.Timestamp(timeWindow / 1000, 0))
+                            .get()
+                            .await()
+                        if (!confirmed.isEmpty) {
+                            status = "Confirmed"
+                        }
+                    }
+
                     ConfirmedIncident(
                         id = doc.id,
-                        roomId = data["roomId"] as? String ?: "",
+                        roomId = "Unknown",
                         flaggerRoomId = data["flaggerRoomId"] as? String,
                         timestamp = ts?.toDate()?.time ?: 0L,
-                        severity = (data["severity"] as? Long)?.toInt() ?: 1,
-                        audioProofUrl = data["audioProofUrl"] as? String,
-                        isWardenEscalated = data["isWardenEscalated"] as? Boolean ?: false
+                        severity = 1,
+                        audioProofUrl = data["audioUrl"] as? String,
+                        isWardenEscalated = false,
+                        status = status
                     )
                 }
         } catch (e: Exception) {

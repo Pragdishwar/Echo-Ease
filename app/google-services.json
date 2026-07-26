@@ -12,7 +12,20 @@
           "package_name": "com.echoease.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "920145708806-a4q3f3ccpd97er9mc43cklg42n6jg3d4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.echoease.app",
+            "certificate_hash": "b0bd8330ef9669ba191d1a14128b97a74f5604b1"
+          }
+        },
+        {
+          "client_id": "920145708806-0hj7eff56f7m4assvtvhl4rj1dojb3kh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBjU7Lie7Yn0ZDjCQemQJXF8SPOdB3O-Wg"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "920145708806-0hj7eff56f7m4assvtvhl4rj1dojb3kh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

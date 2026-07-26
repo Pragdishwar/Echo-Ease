@@ -157,11 +157,15 @@ fun AdminContent(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
+                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
                 OutlinedTextField(
                     value = wardenContact,
                     onValueChange = { wardenContact = it },
                     label = { Text("Warden Contact (Email/Phone)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() })
                 )
             }
         }

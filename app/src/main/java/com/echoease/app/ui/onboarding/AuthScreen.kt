@@ -59,6 +59,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
             }
         } else {
             isLoading = false
+            error = "Sign-in cancelled or failed (Code: ${result.resultCode}). Ensure your SHA-1 fingerprint is added to Firebase."
         }
     }
 
