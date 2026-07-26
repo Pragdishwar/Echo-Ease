@@ -58,6 +58,10 @@ fun MainContent() {
     var userRole by remember { mutableStateOf("resident") }
     var userRoomId by remember { mutableStateOf<String?>(null) }
     var activeNudge by remember { mutableStateOf<String?>(null) }
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val networkMonitor = remember { com.echoease.app.util.NetworkMonitor(context) }
+    val isConnected by networkMonitor.isConnected.collectAsState(initial = true)
 
     // AUTH PERSISTENCE LISTENER
     LaunchedEffect(auth) {
@@ -204,6 +208,17 @@ fun MainContent() {
                     }
                 }
             }
+        }
+        
+        // INTERNET CONNECTION DIALOG
+        if (!isConnected) {
+            AlertDialog(
+                onDismissRequest = { /* Force them to connect, don't dismiss */ },
+                title = { Text("No Internet Connection") },
+                text = { Text("Echo-Ease requires an internet connection to sync noise flags and fetch consensus data. Please connect to Wi-Fi or cellular data.") },
+                confirmButton = {},
+                icon = { Icon(Icons.Default.WifiOff, null) }
+            )
         }
     }
 }

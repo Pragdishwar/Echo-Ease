@@ -52,6 +52,13 @@ fun FloorHeatmap(
                     count <= 4 -> Color(0xFFFF5722)
                     else -> Color(0xFFD32F2F)
                 }
+                
+                val textColor = when {
+                    count == 0 -> Color(0xFF2E7D32)
+                    count <= 2 -> Color(0xFFF57F17)
+                    count <= 4 -> Color(0xFFD84315)
+                    else -> Color(0xFFC62828)
+                }
 
                 Box(
                     modifier = Modifier
@@ -64,17 +71,18 @@ fun FloorHeatmap(
                         Text(
                             text = room.name ?: "Unknown",
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E1E1E)
                         )
                         Text(
                             text = "Floor ${room.floor ?: '-'}",
                             style = MaterialTheme.typography.labelExtraSmall.copy(fontSize = 8.sp),
-                            color = Color.Gray
+                            color = Color.DarkGray
                         )
                         Text(
                             text = if (count > 0) "$count 🔥" else "Peaceful",
                             style = MaterialTheme.typography.labelExtraSmall.copy(fontSize = 8.sp),
-                            color = borderColor
+                            color = textColor
                         )
                     }
                 }

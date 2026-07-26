@@ -69,11 +69,14 @@ class RoomRepository {
     suspend fun updateRoom(id: String, name: String, floor: Int) {
         if (AppConstants.USE_MOCK_DATA) return
         withContext(Dispatchers.IO) {
-            val updateData = mapOf(
-                "name" to name,
-                "floor" to floor
+            @kotlinx.serialization.Serializable
+            data class UpdateRoom(
+                val name: String,
+                val floor: Int
             )
-            SupabaseClient.client.postgrest["rooms"].update(updateData) {
+            SupabaseClient.client.postgrest["rooms"].update(
+                value = UpdateRoom(name, floor)
+            ) {
                 filter { eq("id", id) }
             }
         }

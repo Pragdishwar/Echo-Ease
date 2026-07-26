@@ -2,6 +2,8 @@ package com.echoease.app.ui.admin
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -12,7 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -93,6 +97,7 @@ fun AdminContent(
     var wardenContact by remember { mutableStateOf(config.wardenContact) }
     var showAddRoomDialog by remember { mutableStateOf(false) }
     var editingRoom by remember { mutableStateOf<Room?>(null) }
+    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = Modifier
@@ -443,15 +448,14 @@ fun AdminContent(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
                 OutlinedTextField(
                     value = wardenContact,
                     onValueChange = { wardenContact = it },
                     label = { Text("Warden Contact (Email/Phone)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() })
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                 )
             }
         }
@@ -460,6 +464,7 @@ fun AdminContent(
 
         Button(
             onClick = {
+                focusManager.clearFocus()
                 val newConfig = config.copy(
                     consensusThreshold = threshold,
                     escalationTiers = listOf(2, 3, wardenThreshold),
