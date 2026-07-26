@@ -64,7 +64,8 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
                         onUpdateUserRoom = { userId, newRoomId -> viewModel.updateUserRoom(userId, newRoomId) },
                         onAddRoom = { id, name, floor -> viewModel.addRoom(id, name, floor) },
                         onDeleteRoom = { roomId -> viewModel.deleteRoom(roomId) },
-                        onEditRoom = { id, name, floor -> viewModel.updateRoom(id, name, floor) }
+                        onEditRoom = { id, name, floor -> viewModel.updateRoom(id, name, floor) },
+                        onResolveEscalation = { incidentId -> viewModel.resolveEscalation(incidentId) }
                     )
                 }
             }
@@ -84,7 +85,8 @@ fun AdminContent(
     onUpdateUserRoom: (String, String) -> Unit,
     onAddRoom: (String, String, Int) -> Unit,
     onDeleteRoom: (String) -> Unit,
-    onEditRoom: (String, String, Int) -> Unit
+    onEditRoom: (String, String, Int) -> Unit,
+    onResolveEscalation: (String) -> Unit
 ) {
     var threshold by remember { mutableIntStateOf(config.consensusThreshold) }
     var wardenThreshold by remember { mutableIntStateOf(config.escalationTiers.lastOrNull() ?: 4) }
@@ -163,6 +165,13 @@ fun AdminContent(
             var newRoomName by remember { mutableStateOf("") }
             var newRoomFloor by remember { mutableStateOf("") }
             
+            val isIdBlank = newRoomId.isBlank()
+            val hasSpace = newRoomId.contains(" ")
+            val isDuplicate = rooms.any { it.id == newRoomId }
+            val idHasError = newRoomId.isNotEmpty() && (hasSpace || isDuplicate)
+            val isFloorBlank = newRoomFloor.isBlank()
+            val isValid = !isIdBlank && !idHasError && !isFloorBlank
+
             AlertDialog(
                 onDismissRequest = { showAddRoomDialog = false },
                 title = { Text("Add New Room") },
@@ -173,6 +182,11 @@ fun AdminContent(
                             onValueChange = { newRoomId = it },
                             label = { Text("Room ID (e.g. 501)") },
                             singleLine = true,
+                            isError = idHasError,
+                            supportingText = {
+                                if (hasSpace) Text("ID cannot contain spaces")
+                                else if (isDuplicate) Text("Room ID already exists")
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -218,13 +232,16 @@ fun AdminContent(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        val floorInt = newRoomFloor.toIntOrNull() ?: 0
-                        if (newRoomId.isNotBlank()) {
-                            onAddRoom(newRoomId, newRoomName, floorInt)
-                            showAddRoomDialog = false
-                        }
-                    }) {
+                    Button(
+                        onClick = {
+                            val floorInt = newRoomFloor.toIntOrNull() ?: 0
+                            if (newRoomId.isNotBlank()) {
+                                onAddRoom(newRoomId, newRoomName, floorInt)
+                                showAddRoomDialog = false
+                            }
+                        },
+                        enabled = isValid
+                    ) {
                         Text("Add")
                     }
                 },
@@ -240,6 +257,8 @@ fun AdminContent(
             var editRoomName by remember(editingRoom) { mutableStateOf(editingRoom?.name ?: "") }
             var editRoomFloor by remember(editingRoom) { mutableStateOf(editingRoom?.floor?.toString() ?: "") }
             
+            val isFloorBlank = editRoomFloor.isBlank()
+
             AlertDialog(
                 onDismissRequest = { editingRoom = null },
                 title = { Text("Edit Room ${editingRoom?.id}") },
@@ -287,13 +306,16 @@ fun AdminContent(
                     }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        val floorInt = editRoomFloor.toIntOrNull() ?: 0
-                        editingRoom?.id?.let { roomId ->
-                            onEditRoom(roomId, editRoomName, floorInt)
-                        }
-                        editingRoom = null
-                    }) {
+                    Button(
+                        onClick = {
+                            val floorInt = editRoomFloor.toIntOrNull() ?: 0
+                            editingRoom?.id?.let { roomId ->
+                                onEditRoom(roomId, editRoomName, floorInt)
+                            }
+                            editingRoom = null
+                        },
+                        enabled = !isFloorBlank
+                    ) {
                         Text("Save")
                     }
                 },
@@ -324,10 +346,18 @@ fun AdminContent(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), 
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Action Required for Room ${incident.roomId}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
-                        Text("Repeated offender: Severity ${incident.severity}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
-                        Text("Last Incident: ${java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(incident.timestamp))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Action Required for Room ${incident.roomId}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text("Repeated offender: Severity ${incident.severity}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Text("Last Incident: ${java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(incident.timestamp))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                        Button(
+                            onClick = { onResolveEscalation(incident.id) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onErrorContainer, contentColor = MaterialTheme.colorScheme.errorContainer)
+                        ) {
+                            Text("Resolve")
+                        }
                     }
                 }
             }
@@ -539,7 +569,8 @@ fun AdminContentPreview() {
             onUpdateUserRoom = { _, _ -> },
             onAddRoom = { _, _, _ -> },
             onDeleteRoom = { _ -> },
-            onEditRoom = { _, _, _ -> }
+            onEditRoom = { _, _, _ -> },
+            onResolveEscalation = { _ -> }
         )
     }
 }

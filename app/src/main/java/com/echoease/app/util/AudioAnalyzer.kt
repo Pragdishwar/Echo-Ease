@@ -68,47 +68,42 @@ class AudioAnalyzer {
 
                 job = scope.launch(Dispatchers.Default) {
                     val buffer = ShortArray(bufferSize)
-                    while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                        val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                        if (read > 0) {
-                            var sum = 0.0
-                            var maxAmplitude = 0
-                            for (i in 0 until read) {
-                                val value = buffer[i].toDouble()
-                                sum += value * value
-                                if (Math.abs(buffer[i].toInt()) > maxAmplitude) {
-                                    maxAmplitude = Math.abs(buffer[i].toInt())
+                    while (isActive) {
+                        if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                            // Read in small chunks for higher framerate (~43fps) instead of waiting for full buffer
+                            val read = audioRecord?.read(buffer, 0, minOf(buffer.size, 1024)) ?: 0
+                            if (read > 0) {
+                                var sum = 0.0
+                                var maxAmplitude = 0
+                                for (i in 0 until read) {
+                                    val value = buffer[i].toDouble()
+                                    sum += value * value
+                                    if (Math.abs(buffer[i].toInt()) > maxAmplitude) {
+                                        maxAmplitude = Math.abs(buffer[i].toInt())
+                                    }
                                 }
-                            }
-                            
-                            // Root Mean Square calculation
-                            val rms = sqrt(sum / read)
-                            
-                            // Reference pressure for mobile mics (approximate)
-                            // 32767.0 is the max value for 16-bit PCM.
-                            // We use a reference where 1.0 is the threshold of hearing.
-                            var db = if (rms > 0.0) 20 * log10(rms) else 0.0
-                            
-                            // Calibration: Most Android mics at 16-bit PCM need an offset 
-                            // to match real-world decibel meters.
-                            if (rms > 0) {
-                                db += 35.0 
-                            }
+                                
+                                val rms = sqrt(sum / read)
+                                var db = if (rms > 0.0) {
+                                    val dbfs = 20 * log10(rms / 32768.0)
+                                    (dbfs + 110.0).coerceAtLeast(0.0)
+                                } else {
+                                    0.0 // Real absolute silence
+                                }
 
-                            // If we have signal but db calculation resulted in something very low,
-                            // use max amplitude to ensure we show life in the UI.
-                            if (db < 25 && maxAmplitude > 2) {
-                                db = 20 * log10(maxAmplitude.toDouble()) + 10.0
+                                val targetDb = db.coerceIn(0.0, 115.0)
+                                val currentDb = _decibels.value
+                                _decibels.value = if (currentDb <= 0.0) targetDb else (currentDb * 0.4) + (targetDb * 0.6)
+                            } else {
+                                // Microphone failed to read real data
+                                _decibels.value = 0.0
+                                delay(50) 
                             }
-
-                            _decibels.value = db.coerceIn(0.0, 115.0)
-                            Log.v("AudioAnalyzer", "Signal detected: Read=$read, MaxAmp=$maxAmplitude, dB=${_decibels.value}")
                         } else {
-                            // Small jitter to show it's trying even if read is 0
-                            _decibels.value = (Math.random() * 5.0) + 15.0 // Base noise floor
-                            Log.w("AudioAnalyzer", "Microphone reading empty data: $read")
+                            // Hardware failed to start
+                            _decibels.value = 0.0
+                            delay(50) 
                         }
-                        delay(150) 
                     }
                 }
             } else {
@@ -133,6 +128,11 @@ class AudioAnalyzer {
             Log.e("AudioAnalyzer", "Cleanup Error: ${e.message}")
         }
         audioRecord = null
-        _decibels.value = 0.0
+    }
+
+    fun setManualDb(db: Double) {
+        val targetDb = db.coerceIn(0.0, 115.0)
+        val currentDb = _decibels.value
+        _decibels.value = if (currentDb <= 0.0) targetDb else (currentDb * 0.4) + (targetDb * 0.6)
     }
 }

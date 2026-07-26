@@ -28,7 +28,7 @@ fun LiveWaveform(
     )
 
     val color = MaterialTheme.colorScheme.primary
-    val amplitude = (db.coerceIn(30.0, 100.0) - 30.0).toFloat() * 2f
+    val amplitude = (db.coerceIn(30.0, 100.0) - 30.0).toFloat() * 3f
 
     Canvas(modifier = modifier.fillMaxWidth().height(100.dp)) {
         val width = size.width

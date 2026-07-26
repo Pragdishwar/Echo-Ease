@@ -1,17 +1,27 @@
 package com.echoease.app.ui.onboarding
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.echoease.app.data.model.Room
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,7 +32,7 @@ fun RoomSelectionScreen(
 ) {
     val rooms by viewModel.rooms.collectAsState()
     val state by viewModel.state.collectAsState()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     LaunchedEffect(buildingId) {
         viewModel.loadRoomsForBuilding(buildingId)
@@ -37,38 +47,83 @@ fun RoomSelectionScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Select Your Space") },
+            TopAppBar(
+                title = { Text("Select Your Space", fontWeight = FontWeight.Bold) },
                 scrollBehavior = scrollBehavior
             )
         },
         contentWindowInsets = WindowInsets.systemBars
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (rooms.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Locating your floor...", style = MaterialTheme.typography.bodyMedium)
+                        Text("Locating your floor plan...", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp)
-                ) {
-                    items(rooms) { room ->
-                        val displayName = room.name?.takeIf { it.isNotBlank() } ?: "Room ${room.id}"
-                        ListItem(
-                            headlineContent = { Text(displayName, style = MaterialTheme.typography.titleLarge) },
-                            supportingContent = { Text("Floor ${room.floor ?: 0}", style = MaterialTheme.typography.bodyMedium) },
-                            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.clickable {
-                                viewModel.selectRoom(room.id)
+                val floors = remember(rooms) { rooms.mapNotNull { it.floor }.distinct().sorted() }
+                if (floors.isEmpty()) {
+                    Text("No rooms configured.", modifier = Modifier.align(Alignment.Center))
+                } else {
+                    var selectedFloor by remember { mutableStateOf(floors.first()) }
+                    
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ScrollableTabRow(
+                            selectedTabIndex = floors.indexOf(selectedFloor).coerceAtLeast(0),
+                            edgePadding = 16.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            floors.forEach { floor ->
+                                Tab(
+                                    selected = selectedFloor == floor,
+                                    onClick = { selectedFloor = floor },
+                                    text = { Text("Floor $floor", fontWeight = FontWeight.Bold) }
+                                )
                             }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp)
+                        }
+                        
+                        AnimatedContent(
+                            targetState = selectedFloor,
+                            transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300)) },
+                            label = "floor_animation"
+                        ) { targetFloor ->
+                            val roomsOnFloor = rooms.filter { it.floor == targetFloor }.sortedBy { it.id }
+                            
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                contentPadding = PaddingValues(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(roomsOnFloor) { room ->
+                                    val displayName = room.name?.takeIf { it.isNotBlank() } ?: "Room ${room.id}"
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f)
+                                            .clickable { viewModel.selectRoom(room.id) },
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Text(
+                                                text = displayName,
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -89,25 +144,6 @@ fun RoomSelectionScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-            }
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun RoomSelectionPreview() {
-    MaterialTheme {
-        Scaffold(
-            topBar = {
-                @OptIn(ExperimentalMaterial3Api::class)
-                LargeTopAppBar(title = { Text("Select Your Space") })
-            }
-        ) { padding ->
-            Column(modifier = Modifier.padding(padding)) {
-                ListItem(headlineContent = { Text("Room 101") }, supportingContent = { Text("Floor 1") })
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                ListItem(headlineContent = { Text("Room 102") }, supportingContent = { Text("Floor 1") })
             }
         }
     }

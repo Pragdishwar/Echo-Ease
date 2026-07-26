@@ -22,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.echoease.app.ui.components.LiveWaveform
 import com.echoease.app.util.AudioAnalyzer
 import com.echoease.app.util.AudioRecorder
+import com.echoease.app.util.NotificationHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -55,11 +56,19 @@ fun HomeScreen(
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.RECORD_AUDIO] == true) {
             showAmbientCheck = true
             audioAnalyzer.start(scope)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
         }
     }
 
@@ -74,6 +83,8 @@ fun HomeScreen(
         when (state) {
             is HomeState.Success -> {
                 snackbarHostState.showSnackbar("Your report has been submitted anonymously.")
+                val notificationHelper = NotificationHelper(context)
+                notificationHelper.showNotification("Report Submitted", "Your noise flag has been securely recorded.")
                 viewModel.resetState()
             }
             is HomeState.Error -> {
@@ -126,7 +137,13 @@ fun HomeScreen(
                         audioAnalyzer.start(scope)
                     }
                     else -> {
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        permissionLauncher.launch(
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                arrayOf(Manifest.permission.RECORD_AUDIO)
+                            }
+                        )
                     }
                 }
             },
@@ -189,14 +206,32 @@ fun HomeScreen(
                         } else if (hasSample) {
                             Button(
                                 onClick = { audioRecorder.playSample() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(Icons.Default.PlayArrow, null)
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text("PLAYBACK SAMPLE")
                             }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = { 
+                                    showAmbientCheck = false
+                                    audioAnalyzer.stop()
+                                    viewModel.flagNoise(audioRecorder.getFile())
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Send, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("SUBMIT FLAG & AUDIO")
+                            }
+
                             TextButton(onClick = { 
                                 hasSample = false
-                                // Let them re-record
                             }) {
                                 Text("RE-RECORD")
                             }
@@ -215,14 +250,21 @@ fun HomeScreen(
                                         for (i in 1..50) {
                                             delay(100)
                                             recordProgress = i / 50f
+                                            
+                                            // Keep visualizer alive during recording using MediaRecorder's amplitude!
+                                            val maxAmp = audioRecorder.getMaxAmplitude()
+                                            if (maxAmp > 0) {
+                                                val dbfs = 20 * kotlin.math.log10(maxAmp.toDouble() / 32768.0)
+                                                val db = (dbfs + 110.0 - 3.0).coerceAtLeast(0.0)
+                                                audioAnalyzer.setManualDb(db)
+                                            } else {
+                                                audioAnalyzer.setManualDb(0.0) // real silence
+                                            }
                                         }
                                         audioRecorder.stopRecording()
                                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                         isRecording = false
                                         hasSample = true
-                                        
-                                        // RESUME ANALYZER
-                                        audioAnalyzer.start(this)
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

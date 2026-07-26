@@ -48,6 +48,14 @@ class AudioRecorder(private val context: Context) {
         recorder = null
     }
 
+    fun getMaxAmplitude(): Int {
+        return try {
+            recorder?.maxAmplitude ?: 0
+        } catch (e: Exception) {
+            0
+        }
+    }
+
     fun playSample() {
         player = MediaPlayer().apply {
             try {
@@ -69,7 +77,6 @@ class AudioRecorder(private val context: Context) {
     fun cleanup() {
         stopRecording()
         stopPlayback()
-        audioFile?.delete()
     }
 
     fun getFile(): File? = audioFile

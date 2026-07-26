@@ -6,6 +6,7 @@ import com.echoease.app.util.AppConstants
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -65,16 +66,24 @@ class RoomRepository {
         }
     }
 
-    suspend fun updateRoom(roomId: String, name: String?, floor: Int?) {
+    suspend fun updateRoom(id: String, name: String, floor: Int) {
         if (AppConstants.USE_MOCK_DATA) return
-        postgrest["rooms"].update(
-            {
-                set("name", name)
-                set("floor", floor)
+        withContext(Dispatchers.IO) {
+            val updateData = mapOf(
+                "name" to name,
+                "floor" to floor
+            )
+            SupabaseClient.client.postgrest["rooms"].update(updateData) {
+                filter { eq("id", id) }
             }
-        ) {
-            filter {
-                eq("id", roomId)
+        }
+    }
+
+    suspend fun resolveEscalation(incidentId: String) {
+        if (AppConstants.USE_MOCK_DATA) return
+        withContext(Dispatchers.IO) {
+            SupabaseClient.client.postgrest["confirmed_incidents"].delete {
+                filter { eq("id", incidentId) }
             }
         }
     }
@@ -162,9 +171,16 @@ class RoomRepository {
     }
 
     suspend fun uploadAudioProof(file: File, buildingId: String): String? {
-        // Skip file uploads in free tier without Firebase
-        // Supabase storage could be implemented here
-        return null
+        if (AppConstants.USE_MOCK_DATA) return null
+        return try {
+            val bucket = SupabaseClient.client.storage["audio_proofs"]
+            val fileName = "${buildingId}_${System.currentTimeMillis()}.m4a"
+            bucket.upload(path = fileName, data = file.readBytes())
+            bucket.publicUrl(fileName)
+        } catch (e: Exception) {
+            android.util.Log.e("RoomRepository", "Audio upload failed", e)
+            null
+        }
     }
 
     suspend fun flagNoise(flag: NoiseFlag, buildingId: String, audioUrl: String? = null) {
@@ -208,6 +224,9 @@ class RoomRepository {
                 
                 // Capture first flagger for filtering logic
                 val firstFlagger = flags.firstOrNull()?.flaggerRoomId
+                
+                // Find any attached audio proof from the flags
+                val audioProofUrl = flags.firstOrNull { it.audioUrl != null }?.audioUrl
 
                 // Check if incident already exists for this window
                 val existing = postgrest["confirmed_incidents"].select {
@@ -234,6 +253,7 @@ class RoomRepository {
                         @kotlinx.serialization.SerialName("flagger_room_id") val flaggerRoomId: String?,
                         val timestamp: Long,
                         val severity: Int,
+                        @kotlinx.serialization.SerialName("audio_proof_url") val audioProofUrl: String?,
                         @kotlinx.serialization.SerialName("is_warden_escalated") val isWardenEscalated: Boolean
                     )
                     
@@ -242,8 +262,19 @@ class RoomRepository {
                         flaggerRoomId = firstFlagger,
                         timestamp = timeWindow,
                         severity = (flags.size - config.consensusThreshold + 1).coerceIn(1, 4),
+                        audioProofUrl = audioProofUrl,
                         isWardenEscalated = shouldEscalate
                     ))
+                } else if (existing.first().audioProofUrl == null && audioProofUrl != null) {
+                    // Update existing incident with the newly uploaded audio proof
+                    postgrest["confirmed_incidents"].update(
+                        { set("audio_proof_url", audioProofUrl) }
+                    ) {
+                        filter {
+                            eq("room_id", culpritRoomId)
+                            eq("timestamp", timeWindow)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -304,7 +335,8 @@ class RoomRepository {
                     flaggerRoomId = flag.flaggerRoomId,
                     timestamp = flag.timestamp,
                     severity = 1,
-                    status = status
+                    status = status,
+                    audioProofUrl = flag.audioUrl
                 )
             }
         } catch (e: Exception) {

@@ -7,7 +7,8 @@ import kotlinx.serialization.SerialName
 data class NoiseFlag(
     @SerialName("flagger_room_id") val flaggerRoomId: String = "",
     val timestamp: Long = 0L,
-    @SerialName("time_window") val timeWindow: Long = 0L
+    @SerialName("time_window") val timeWindow: Long = 0L,
+    @SerialName("audio_url") val audioUrl: String? = null
 )
 
 data class RoomAdjacency(

@@ -128,4 +128,15 @@ class AdminViewModel : ViewModel() {
             }
         }
     }
+
+    fun resolveEscalation(incidentId: String) {
+        viewModelScope.launch {
+            try {
+                repository.resolveEscalation(incidentId)
+                loadConfig()
+            } catch (e: Exception) {
+                _state.value = AdminState.Error("Failed to resolve escalation: ${e.message}")
+            }
+        }
+    }
 }
