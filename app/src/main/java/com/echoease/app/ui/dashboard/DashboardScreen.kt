@@ -162,12 +162,24 @@ fun DashboardContent(
                     shape = MaterialTheme.shapes.large,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        if (selectedTab == 0) "No incidents on record. Your space is tranquil!" else "No flags sent recently. Community is quiet.",
-                        modifier = Modifier.padding(24.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = if (selectedTab == 0) Icons.Default.CheckCircle else Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        )
+                        Text(
+                            text = if (selectedTab == 0) "No incidents on record. Your space is tranquil!" else "No flags sent recently. Community is quiet.",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             }
         } else {

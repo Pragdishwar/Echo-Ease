@@ -16,12 +16,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomSelectionScreen(
+    buildingId: String,
     onRoomSelected: () -> Unit,
     viewModel: OnboardingViewModel = viewModel()
 ) {
     val rooms by viewModel.rooms.collectAsState()
     val state by viewModel.state.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    LaunchedEffect(buildingId) {
+        viewModel.loadRoomsForBuilding(buildingId)
+    }
 
     LaunchedEffect(state) {
         if (state is OnboardingState.RoomSelected) {
@@ -54,9 +59,10 @@ fun RoomSelectionScreen(
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     items(rooms) { room ->
+                        val displayName = room.name?.takeIf { it.isNotBlank() } ?: "Room ${room.id}"
                         ListItem(
-                            headlineContent = { Text(room.name, style = MaterialTheme.typography.titleLarge) },
-                            supportingContent = { Text("Floor ${room.floor}", style = MaterialTheme.typography.bodyMedium) },
+                            headlineContent = { Text(displayName, style = MaterialTheme.typography.titleLarge) },
+                            supportingContent = { Text("Floor ${room.floor ?: 0}", style = MaterialTheme.typography.bodyMedium) },
                             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier.clickable {
                                 viewModel.selectRoom(room.id)

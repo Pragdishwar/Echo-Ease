@@ -7,7 +7,8 @@ import com.echoease.app.data.local.PreferenceManager
 import com.echoease.app.data.model.NoiseFlag
 import com.echoease.app.data.repository.RoomRepository
 import com.echoease.app.util.AppConstants
-import com.google.firebase.auth.FirebaseAuth
+import com.echoease.app.data.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +26,7 @@ sealed class HomeState {
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RoomRepository()
     private val preferenceManager = PreferenceManager(application)
-    private val auth by lazy { FirebaseAuth.getInstance() }
+    private val auth = SupabaseClient.client.auth
 
     private val _state = MutableStateFlow<HomeState>(HomeState.Idle)
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -38,14 +39,26 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadProfile() {
-        val currentUser = auth.currentUser ?: return
+        val currentUser = auth.currentUserOrNull() ?: return
         viewModelScope.launch {
-            _userProfile.value = repository.getUserProfile(currentUser.uid)
+            _userProfile.value = repository.getUserProfile(currentUser.id)
+        }
+    }
+
+    fun updateName(name: String) {
+        val currentUser = auth.currentUserOrNull() ?: return
+        viewModelScope.launch {
+            try {
+                repository.updateUserName(currentUser.id, name)
+                loadProfile() // refresh locally
+            } catch (e: Exception) {
+                _state.value = HomeState.Error("Failed to update name: ${e.message}")
+            }
         }
     }
 
     fun flagNoise(audioFile: java.io.File? = null) {
-        val currentUser = auth.currentUser ?: return
+        val currentUser = auth.currentUserOrNull() ?: return
         val now = System.currentTimeMillis()
 
         viewModelScope.launch {
@@ -60,15 +73,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                val profile = repository.getUserProfile(currentUser.uid)
-                if (profile == null || profile.roomId.isEmpty()) {
+                val profile = repository.getUserProfile(currentUser.id)
+                if (profile == null || profile.roomId.isNullOrEmpty()) {
                     _state.value = HomeState.Error("Please set up your room first")
                     return@launch
                 }
 
                 var audioUrl: String? = null
                 if (audioFile != null && audioFile.exists()) {
-                    audioUrl = repository.uploadAudioProof(audioFile, profile.buildingId)
+                    audioUrl = repository.uploadAudioProof(audioFile, profile.buildingId ?: "default_building")
                 }
 
                 val windowSize = AppConstants.CONSENSUS_WINDOW_MS
@@ -80,7 +93,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     timeWindow = timeWindow
                 )
 
-                repository.flagNoise(flag, profile.buildingId, audioUrl)
+                repository.flagNoise(flag, profile.buildingId ?: "default_building", audioUrl)
                 preferenceManager.updateLastFlagTimestamp(now)
                 _state.value = HomeState.Success
             } catch (e: Exception) {
@@ -94,6 +107,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun signOut() {
-        auth.signOut()
+        viewModelScope.launch {
+            try {
+                auth.signOut()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
     }
 }

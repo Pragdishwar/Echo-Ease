@@ -130,13 +130,12 @@ fun HomeScreen(
                     }
                 }
             },
-            onSelectRoom = onNavigateToOnboarding,
+            onSelectRoom = {}, // Moved to Profile Screen
             onNavigateToHistory = onNavigateToDashboard,
-            onProfileClick = {
-                // Logout for now as profile action
-                viewModel.signOut()
-                onLogout()
-            }
+            onProfileClick = {}, // Moved to bottom nav
+            onUpdateName = {}, // Moved to Profile Screen
+            userProfile = userProfile,
+            onLogout = {} // Moved to Profile Screen
         )
 
         if (showAmbientCheck) {
@@ -247,7 +246,10 @@ fun HomeContent(
     onAmbientCheck: () -> Unit,
     onSelectRoom: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onProfileClick: () -> Unit
+    onProfileClick: () -> Unit,
+    onUpdateName: (String) -> Unit,
+    userProfile: com.echoease.app.data.model.UserProfile?,
+    onLogout: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -311,33 +313,17 @@ fun HomeContent(
         Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
 
         MenuButton(
-            text = "Select Room",
-            icon = Icons.Default.MeetingRoom,
-            onClick = onSelectRoom
-        )
-
-        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
-
-        MenuButton(
             text = "Ambient Sound Check",
             icon = Icons.Default.GraphicEq,
             onClick = onAmbientCheck
         )
 
-        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
+        Spacer(modifier = Modifier.height(8.dp))
 
         MenuButton(
             text = "History",
             icon = Icons.Default.History,
             onClick = onNavigateToHistory
-        )
-
-        Spacer(modifier = Modifier.height(8.dp)) // Shrank from 12dp
-
-        MenuButton(
-            text = "Profile",
-            icon = Icons.Default.Person,
-            onClick = onProfileClick
         )
     }
 }
@@ -406,7 +392,10 @@ fun HomeContentPreview() {
             onAmbientCheck = {},
             onSelectRoom = {},
             onNavigateToHistory = {},
-            onProfileClick = {}
+            onProfileClick = {},
+            onUpdateName = {},
+            userProfile = null,
+            onLogout = {}
         )
     }
 }

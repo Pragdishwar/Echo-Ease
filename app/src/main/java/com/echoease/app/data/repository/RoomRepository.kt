@@ -1,25 +1,18 @@
 package com.echoease.app.data.repository
 
-import com.echoease.app.data.model.Building
-import com.echoease.app.data.model.BuildingConfig
-import com.echoease.app.data.model.ConfirmedIncident
-import com.echoease.app.data.model.NoiseFlag
-import com.echoease.app.data.model.Room
-import com.echoease.app.data.model.RoomAdjacency
-import com.echoease.app.data.model.UserProfile
+import com.echoease.app.data.SupabaseClient
+import com.echoease.app.data.model.*
 import com.echoease.app.util.AppConstants
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
-import com.google.firebase.storage.FirebaseStorage
-import kotlinx.coroutines.tasks.await
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
-import javax.inject.Singleton
 
-@Singleton
 class RoomRepository {
-    private val firestore by lazy { FirebaseFirestore.getInstance() }
-    private val storage by lazy { FirebaseStorage.getInstance() }
+    private val postgrest = SupabaseClient.client.postgrest
 
     suspend fun getAllBuildings(): List<Building> {
         if (AppConstants.USE_MOCK_DATA) {
@@ -28,92 +21,170 @@ class RoomRepository {
                 Building("b2", "Ease Apartments", "456 Oak Rd", "Nature City")
             )
         }
-        return try {
-            firestore.collection("buildings")
-                .get()
-                .await()
-                .toObjects(Building::class.java)
-        } catch (e: Exception) {
-            emptyList()
-        }
+        return listOf(
+            Building("default_building", "EchoEase HQ", "123 Main", "City")
+        ) // We are using a single building_config for now
     }
 
     suspend fun getRoomsByBuilding(buildingId: String): List<Room> {
         if (AppConstants.USE_MOCK_DATA) {
             return listOf(
-                Room("r1", "Room 101", 1),
-                Room("r2", "Room 102", 1),
-                Room("r3", "Room 201", 2)
+                Room("101", "Room 101", 1), Room("102", "Room 102", 1), Room("201", "Room 201", 2)
             )
         }
         return try {
-            firestore.collection("rooms")
-                .whereEqualTo("buildingId", buildingId)
-                .get()
-                .await()
-                .toObjects(Room::class.java)
+            postgrest["rooms"].select {
+                filter {
+                    eq("building_id", buildingId)
+                }
+            }.decodeList<Room>()
         } catch (e: Exception) {
+            android.util.Log.e("RoomRepository", "Error fetching rooms", e)
             emptyList()
         }
     }
 
+    suspend fun addRoom(room: Room, buildingId: String) {
+        if (AppConstants.USE_MOCK_DATA) return
+        @kotlinx.serialization.Serializable
+        data class InsertRoom(
+            val id: String,
+            @kotlinx.serialization.SerialName("building_id") val buildingId: String,
+            val name: String?,
+            val floor: Int?
+        )
+        postgrest["rooms"].insert(InsertRoom(room.id, buildingId, room.name, room.floor))
+    }
+
+    suspend fun deleteRoom(roomId: String) {
+        if (AppConstants.USE_MOCK_DATA) return
+        postgrest["rooms"].delete {
+            filter {
+                eq("id", roomId)
+            }
+        }
+    }
+
+    suspend fun updateRoom(roomId: String, name: String?, floor: Int?) {
+        if (AppConstants.USE_MOCK_DATA) return
+        postgrest["rooms"].update(
+            {
+                set("name", name)
+                set("floor", floor)
+            }
+        ) {
+            filter {
+                eq("id", roomId)
+            }
+        }
+    }
+
     suspend fun saveUserProfile(profile: UserProfile) {
-        firestore.collection("users")
-            .document(profile.uid)
-            .set(profile)
-            .await()
+        postgrest["users"].upsert(profile)
+    }
+
+    suspend fun updateUserName(uid: String, name: String) {
+        postgrest["users"].update(
+            {
+                set("name", name)
+            }
+        ) {
+            filter { eq("id", uid) }
+        }
     }
 
     suspend fun getUserProfile(uid: String): UserProfile? {
         if (AppConstants.USE_MOCK_DATA) {
-            return UserProfile(uid, "r1", "b1", "user@example.com", "resident")
+            return UserProfile(uid, "101", "default_building", "user@example.com", "resident")
         }
         return try {
-            firestore.collection("users")
-                .document(uid)
-                .get()
-                .await()
-                .toObject(UserProfile::class.java)
+            val result = postgrest["users"].select {
+                filter {
+                    eq("id", uid)
+                }
+            }
+            if (result.data == "[]") return null
+            result.decodeSingleOrNull<UserProfile>()
         } catch (e: Exception) {
-            null
+            // Return a fallback profile so the user isn't trapped in onboarding loop
+            UserProfile(uid = uid, roomId = "fetch_error", name = e.message ?: "Unknown Error", buildingId = "default_building", role = "resident")
+        }
+    }
+
+    suspend fun getAllUsersInBuilding(buildingId: String): List<UserProfile> {
+        if (AppConstants.USE_MOCK_DATA) {
+            return emptyList()
+        }
+        return try {
+            postgrest["users"].select().decodeList<UserProfile>()
+        } catch (e: Exception) {
+            android.util.Log.e("RoomRepository", "Error fetching all users in building", e)
+            listOf(UserProfile(uid = "error", email = "Error: ${e.message ?: e.javaClass.simpleName}", role = "admin"))
+        }
+    }
+
+    suspend fun updateUserRoom(userId: String, newRoomId: String) {
+        if (AppConstants.USE_MOCK_DATA) return
+        
+        @kotlinx.serialization.Serializable
+        data class RoomUpdate(
+            @kotlinx.serialization.SerialName("room_id") val roomId: String
+        )
+        postgrest["users"].update(
+            value = RoomUpdate(newRoomId)
+        ) {
+            filter {
+                eq("id", userId)
+            }
         }
     }
 
     suspend fun getBuildingConfig(buildingId: String): BuildingConfig {
         return try {
-            firestore.collection("buildings")
-                .document(buildingId)
-                .get()
-                .await()
-                .toObject(BuildingConfig::class.java) ?: BuildingConfig(buildingId)
+            postgrest["building_config"].select {
+                filter {
+                    eq("id", buildingId)
+                }
+            }.decodeSingleOrNull<BuildingConfig>() ?: BuildingConfig(buildingId)
         } catch (e: Exception) {
             BuildingConfig(buildingId)
         }
     }
 
     suspend fun updateBuildingConfig(config: BuildingConfig) {
-        firestore.collection("buildings")
-            .document(config.buildingId)
-            .set(config)
-            .await()
+        postgrest["building_config"].update(
+            value = config
+        ) {
+            filter {
+                eq("id", config.buildingId)
+            }
+        }
     }
 
-    suspend fun uploadAudioProof(file: File, buildingId: String): String {
-        val storageRef = storage.reference.child("audio_proofs/$buildingId/${System.currentTimeMillis()}.m4a")
-        storageRef.putFile(android.net.Uri.fromFile(file)).await()
-        return storageRef.downloadUrl.await().toString()
+    suspend fun uploadAudioProof(file: File, buildingId: String): String? {
+        // Skip file uploads in free tier without Firebase
+        // Supabase storage could be implemented here
+        return null
     }
 
     suspend fun flagNoise(flag: NoiseFlag, buildingId: String, audioUrl: String? = null) {
-        firestore.collection("flags")
-            .add(mapOf(
-                "flaggerRoomId" to flag.flaggerRoomId,
-                "buildingId" to buildingId,
-                "timestamp" to com.google.firebase.Timestamp(flag.timestamp / 1000, (flag.timestamp % 1000 * 1000000).toInt()),
-                "timeWindow" to flag.timeWindow,
-                "audioUrl" to audioUrl
-            ))
-            .await()
+        // We use an anonymous data class or a map for insertion to avoid UUID auto-gen issues
+        @kotlinx.serialization.Serializable
+        data class InsertFlag(
+            @kotlinx.serialization.SerialName("flagger_room_id") val flaggerRoomId: String,
+            @kotlinx.serialization.SerialName("building_id") val buildingId: String,
+            val timestamp: Long,
+            @kotlinx.serialization.SerialName("time_window") val timeWindow: Long,
+            @kotlinx.serialization.SerialName("audio_url") val audioUrl: String?
+        )
+        
+        postgrest["flags"].insert(InsertFlag(
+            flaggerRoomId = flag.flaggerRoomId,
+            buildingId = buildingId,
+            timestamp = flag.timestamp,
+            timeWindow = flag.timeWindow,
+            audioUrl = audioUrl
+        ))
             
         // TRIGGER SIMULATED BACKEND
         triggerSimulatedConsensus(buildingId, flag.timeWindow)
@@ -121,52 +192,58 @@ class RoomRepository {
 
     private suspend fun triggerSimulatedConsensus(buildingId: String, timeWindow: Long) {
         try {
-            // Get config
             val config = getBuildingConfig(buildingId)
             
-            // Get all flags for this window
-            val flags = firestore.collection("flags")
-                .whereEqualTo("buildingId", buildingId)
-                .whereEqualTo("timeWindow", timeWindow)
-                .get()
-                .await()
+            val flags = postgrest["flags"].select {
+                filter {
+                    eq("building_id", buildingId)
+                    eq("time_window", timeWindow)
+                }
+            }.decodeList<NoiseFlag>()
             
-            if (flags.size() >= config.consensusThreshold) {
+            if (flags.size >= config.consensusThreshold) {
                 // In a real app, we'd find the culprit room via proximity logic.
-                // For demo, we'll pick a "culprit" room (maybe r2 if r1 flagged).
-                val culpritRoomId = "r2" 
-                
-                // Collect any audio URLs as proof
-                val proofs = flags.documents.mapNotNull { it.getString("audioUrl") }
+                // For demo, we'll pick a "culprit" room (maybe 102 if 101 flagged).
+                val culpritRoomId = "102" 
                 
                 // Capture first flagger for filtering logic
-                val firstFlagger = flags.documents.firstOrNull()?.getString("flaggerRoomId")
+                val firstFlagger = flags.firstOrNull()?.flaggerRoomId
 
                 // Check if incident already exists for this window
-                val existing = firestore.collection("confirmedIncidents")
-                    .whereEqualTo("roomId", culpritRoomId)
-                    .whereEqualTo("timestamp", com.google.firebase.Timestamp(timeWindow / 1000, 0))
-                    .get()
-                    .await()
+                val existing = postgrest["confirmed_incidents"].select {
+                    filter {
+                        eq("room_id", culpritRoomId)
+                        eq("timestamp", timeWindow)
+                    }
+                }.decodeList<ConfirmedIncident>()
                 
-                if (existing.isEmpty) {
+                if (existing.isEmpty()) {
                     // Check for Warden Escalation (e.g. if this is the 5th incident for this room)
-                    val pastIncidents = firestore.collection("confirmedIncidents")
-                        .whereEqualTo("roomId", culpritRoomId)
-                        .get()
-                        .await()
+                    val pastIncidents = postgrest["confirmed_incidents"].select {
+                        filter {
+                            eq("room_id", culpritRoomId)
+                        }
+                    }.decodeList<ConfirmedIncident>()
                     
                     val wardenThreshold = config.escalationTiers.lastOrNull() ?: 5
-                    val shouldEscalate = pastIncidents.size() >= wardenThreshold
-
-                    firestore.collection("confirmedIncidents").add(mapOf(
-                        "roomId" to culpritRoomId,
-                        "flaggerRoomId" to firstFlagger,
-                        "timestamp" to com.google.firebase.Timestamp(timeWindow / 1000, 0),
-                        "severity" to (flags.size() - config.consensusThreshold + 1).coerceIn(1, 4),
-                        "audioProofUrl" to proofs.firstOrNull(),
-                        "isWardenEscalated" to shouldEscalate
-                    )).await()
+                    val shouldEscalate = pastIncidents.size >= wardenThreshold
+                    
+                    @kotlinx.serialization.Serializable
+                    data class InsertIncident(
+                        @kotlinx.serialization.SerialName("room_id") val roomId: String,
+                        @kotlinx.serialization.SerialName("flagger_room_id") val flaggerRoomId: String?,
+                        val timestamp: Long,
+                        val severity: Int,
+                        @kotlinx.serialization.SerialName("is_warden_escalated") val isWardenEscalated: Boolean
+                    )
+                    
+                    postgrest["confirmed_incidents"].insert(InsertIncident(
+                        roomId = culpritRoomId,
+                        flaggerRoomId = firstFlagger,
+                        timestamp = timeWindow,
+                        severity = (flags.size - config.consensusThreshold + 1).coerceIn(1, 4),
+                        isWardenEscalated = shouldEscalate
+                    ))
                 }
             }
         } catch (e: Exception) {
@@ -177,28 +254,17 @@ class RoomRepository {
     suspend fun getConfirmedIncidents(roomId: String): List<ConfirmedIncident> {
         val thirtyDaysAgo = Calendar.getInstance().apply {
             add(Calendar.DAY_OF_YEAR, -AppConstants.INCIDENT_HISTORY_DAYS)
-        }.time
+        }.time.time
 
         return try {
-            firestore.collection("confirmedIncidents")
-                .whereEqualTo("roomId", roomId)
-                .whereGreaterThan("timestamp", com.google.firebase.Timestamp(thirtyDaysAgo))
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .get()
-                .await()
-                .documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    val ts = data["timestamp"] as? com.google.firebase.Timestamp
-                    ConfirmedIncident(
-                        id = doc.id,
-                        roomId = data["roomId"] as? String ?: "",
-                        flaggerRoomId = data["flaggerRoomId"] as? String,
-                        timestamp = ts?.toDate()?.time ?: 0L,
-                        severity = (data["severity"] as? Long)?.toInt() ?: 1,
-                        audioProofUrl = data["audioProofUrl"] as? String,
-                        isWardenEscalated = data["isWardenEscalated"] as? Boolean ?: false
-                    )
+            postgrest["confirmed_incidents"].select {
+                filter {
+                    eq("room_id", roomId)
+                    gt("timestamp", thirtyDaysAgo)
                 }
+                order("timestamp", Order.DESCENDING)
+                limit(30)
+            }.decodeList<ConfirmedIncident>()
         } catch (e: Exception) {
             emptyList()
         }
@@ -206,38 +272,55 @@ class RoomRepository {
 
     suspend fun getIncidentsByFlagger(roomId: String): List<ConfirmedIncident> {
         return try {
-            firestore.collection("flags")
-                .whereEqualTo("flaggerRoomId", roomId)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .get()
-                .await()
-                .documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    val ts = data["timestamp"] as? com.google.firebase.Timestamp
-                    val timeWindow = data["timeWindow"] as? Long
-                    
-                    var status = "Waiting"
-                    if (timeWindow != null) {
-                        val confirmed = firestore.collection("confirmedIncidents")
-                            .whereEqualTo("timestamp", com.google.firebase.Timestamp(timeWindow / 1000, 0))
-                            .get()
-                            .await()
-                        if (!confirmed.isEmpty) {
-                            status = "Confirmed"
-                        }
-                    }
-
-                    ConfirmedIncident(
-                        id = doc.id,
-                        roomId = "Unknown",
-                        flaggerRoomId = data["flaggerRoomId"] as? String,
-                        timestamp = ts?.toDate()?.time ?: 0L,
-                        severity = 1,
-                        audioProofUrl = data["audioUrl"] as? String,
-                        isWardenEscalated = false,
-                        status = status
-                    )
+            val flags = postgrest["flags"].select {
+                filter {
+                    eq("flagger_room_id", roomId)
                 }
+                order("timestamp", Order.DESCENDING)
+                limit(30)
+            }.decodeList<NoiseFlag>()
+            
+            if (flags.isEmpty()) return emptyList()
+
+            val timeWindows = flags.map { it.timeWindow }
+            
+            val confirmedTimeWindows = try {
+                postgrest["confirmed_incidents"].select {
+                    filter {
+                        isIn("timestamp", timeWindows)
+                    }
+                }.decodeList<ConfirmedIncident>().map { it.timestamp }.toSet()
+            } catch(e: Exception) {
+                emptySet<Long>()
+            }
+            
+            // Map flags to ConfirmedIncident view for UI
+            flags.map { flag ->
+                val status = if (confirmedTimeWindows.contains(flag.timeWindow)) "Confirmed" else "Waiting"
+                
+                ConfirmedIncident(
+                    id = "",
+                    roomId = "Unknown",
+                    flaggerRoomId = flag.flaggerRoomId,
+                    timestamp = flag.timestamp,
+                    severity = 1,
+                    status = status
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun getEscalatedIncidents(buildingId: String): List<ConfirmedIncident> {
+        return try {
+            postgrest["confirmed_incidents"].select {
+                filter {
+                    eq("is_warden_escalated", true)
+                }
+                order("timestamp", Order.DESCENDING)
+                limit(30)
+            }.decodeList<ConfirmedIncident>()
         } catch (e: Exception) {
             emptyList()
         }

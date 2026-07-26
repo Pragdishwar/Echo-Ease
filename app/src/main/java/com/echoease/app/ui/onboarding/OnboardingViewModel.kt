@@ -6,11 +6,13 @@ import com.echoease.app.data.model.Building
 import com.echoease.app.data.model.Room
 import com.echoease.app.data.model.UserProfile
 import com.echoease.app.data.repository.RoomRepository
-import com.google.firebase.auth.FirebaseAuth
+import com.echoease.app.data.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.jsonPrimitive
 
 sealed class OnboardingState {
     object Idle : OnboardingState()
@@ -22,7 +24,7 @@ sealed class OnboardingState {
 
 class OnboardingViewModel : ViewModel() {
     private val repository = RoomRepository()
-    private val auth by lazy { FirebaseAuth.getInstance() }
+    private val auth = SupabaseClient.client.auth
 
     private val _state = MutableStateFlow<OnboardingState>(OnboardingState.Idle)
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
@@ -45,7 +47,17 @@ class OnboardingViewModel : ViewModel() {
         }
     }
 
+    fun reset() {
+        _state.value = OnboardingState.Idle
+        selectedBuildingId = ""
+    }
+
     fun selectBuilding(buildingId: String) {
+        selectedBuildingId = buildingId
+        loadRoomsForBuilding(buildingId)
+    }
+
+    fun loadRoomsForBuilding(buildingId: String) {
         selectedBuildingId = buildingId
         viewModelScope.launch {
             _rooms.value = repository.getRoomsByBuilding(buildingId)
@@ -53,16 +65,20 @@ class OnboardingViewModel : ViewModel() {
     }
 
     fun selectRoom(roomId: String) {
-        val currentUser = auth.currentUser
+        val currentUser = auth.currentUserOrNull()
         if (currentUser != null) {
             viewModelScope.launch {
                 try {
                     _state.value = OnboardingState.Loading
+                    val existingProfile = repository.getUserProfile(currentUser.id)
+                    val googleName = currentUser.userMetadata?.get("full_name")?.jsonPrimitive?.content ?: currentUser.userMetadata?.get("name")?.jsonPrimitive?.content
                     val profile = UserProfile(
-                        uid = currentUser.uid,
+                        uid = currentUser.id,
                         roomId = roomId,
                         buildingId = selectedBuildingId,
-                        email = currentUser.email
+                        name = existingProfile?.name?.takeIf { it.isNotBlank() } ?: googleName,
+                        email = currentUser.email,
+                        role = existingProfile?.role ?: "resident"
                     )
                     repository.saveUserProfile(profile)
                     _state.value = OnboardingState.RoomSelected

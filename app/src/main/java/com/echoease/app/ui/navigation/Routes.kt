@@ -14,13 +14,16 @@ sealed class Screen {
     object BuildingSelection : Screen()
     
     @Serializable
-    object RoomSelection : Screen()
+    data class RoomSelection(val buildingId: String) : Screen()
     
     @Serializable
     object Home : Screen()
 
     @Serializable
     object Dashboard : Screen()
+
+    @Serializable
+    object Profile : Screen()
 
     @Serializable
     object Admin : Screen()

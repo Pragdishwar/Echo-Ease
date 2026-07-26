@@ -19,49 +19,40 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import android.util.Log
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
+import com.echoease.app.data.SupabaseClient
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.compose.auth.composeAuth
+import io.github.jan.supabase.compose.auth.composable.rememberSignInWithGoogle
+import io.github.jan.supabase.compose.auth.composable.NativeSignInResult
 import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(onAuthenticated: () -> Unit) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var emailText by remember { mutableStateOf("") }
+    var passwordText by remember { mutableStateOf("") }
     var isSignUp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val isPreview = LocalInspectionMode.current
-    val auth = remember { if (isPreview) null else FirebaseAuth.getInstance() }
-    val context = LocalContext.current
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-                auth?.signInWithCredential(credential)?.addOnCompleteListener { signInTask ->
-                    isLoading = false
-                    if (signInTask.isSuccessful) {
-                        onAuthenticated()
-                    } else {
-                        error = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
-                    }
+    val coroutineScope = rememberCoroutineScope()
+    
+    val googleSignIn = SupabaseClient.client.composeAuth.rememberSignInWithGoogle(
+        onResult = { result ->
+            when(result) {
+                is NativeSignInResult.Success -> {
+                    onAuthenticated()
                 }
-            } catch (e: ApiException) {
-                isLoading = false
-                error = "Google Sign-In failed: ${e.message}"
+                is NativeSignInResult.Error -> {
+                    error = result.message
+                }
+                is NativeSignInResult.ClosedByUser -> {}
+                is NativeSignInResult.NetworkError -> {
+                    error = "Network Error during Google Login"
+                }
             }
-        } else {
-            isLoading = false
-            error = "Sign-in cancelled or failed (Code: ${result.resultCode}). Ensure your SHA-1 fingerprint is added to Firebase."
         }
-    }
+    )
 
     Scaffold(
         contentWindowInsets = WindowInsets.systemBars
@@ -103,10 +94,9 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 }
             }
 
-            // EMAIL FIELDS (RESTORED AS BACKUP)
             OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
+                value = emailText,
+                onValueChange = { emailText = it },
                 label = { Text("Email") },
                 leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
@@ -116,8 +106,8 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
+                value = passwordText,
+                onValueChange = { passwordText = it },
                 label = { Text("Password") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                 visualTransformation = PasswordVisualTransformation(),
@@ -128,24 +118,32 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // MAIN EMAIL LOGIN BUTTON
             Button(
                 onClick = {
-                    if (email.isBlank() || password.isBlank()) {
+                    if (emailText.isBlank() || passwordText.isBlank()) {
                         error = "Enter email and password"
                         return@Button
                     }
                     isLoading = true
                     error = null
-                    if (isSignUp) {
-                        auth?.createUserWithEmailAndPassword(email.trim(), password)?.addOnCompleteListener { task ->
+                    coroutineScope.launch {
+                        try {
+                            if (isSignUp) {
+                                SupabaseClient.client.auth.signUpWith(Email) {
+                                    email = emailText.trim()
+                                    password = passwordText
+                                }
+                            } else {
+                                SupabaseClient.client.auth.signInWith(Email) {
+                                    email = emailText.trim()
+                                    password = passwordText
+                                }
+                            }
                             isLoading = false
-                            if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
-                        }
-                    } else {
-                        auth?.signInWithEmailAndPassword(email.trim(), password)?.addOnCompleteListener { task ->
+                            onAuthenticated()
+                        } catch (e: Exception) {
                             isLoading = false
-                            if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
+                            error = e.localizedMessage ?: "Authentication failed"
                         }
                     }
                 },
@@ -160,46 +158,43 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
             TextButton(onClick = { isSignUp = !isSignUp }) {
                 Text(if (isSignUp) "Already have an account? Login" else "New here? Sign Up")
             }
-
-            Divider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // GOOGLE SIGN IN BUTTON
-            OutlinedButton(
-                onClick = {
-                    isLoading = true
-                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestIdToken(context.getString(com.echoease.app.R.string.default_web_client_id))
-                        .requestEmail()
-                        .build()
-                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isLoading,
-                shape = MaterialTheme.shapes.large
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Person, contentDescription = null)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Continue with Google")
-                }
-            }
-
+            
             Spacer(modifier = Modifier.height(12.dp))
-
-            // GUEST SIGN IN BUTTON
+            
             TextButton(
                 onClick = {
                     isLoading = true
-                    auth?.signInAnonymously()?.addOnCompleteListener { task ->
-                        isLoading = false
-                        if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
+                    coroutineScope.launch {
+                        try {
+                            SupabaseClient.client.auth.signInAnonymously()
+                            isLoading = false
+                            onAuthenticated()
+                        } catch(e: Exception) {
+                            isLoading = false
+                            error = "Guest login failed. Make sure Anonymous login is enabled in Supabase."
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading
             ) {
                 Text("Continue as Guest", color = MaterialTheme.colorScheme.outline)
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Divider(modifier = Modifier.fillMaxWidth(0.8f))
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Button(
+                onClick = { googleSignIn.startFlow() },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text("Sign in with Google")
             }
         }
     }

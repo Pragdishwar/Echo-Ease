@@ -4,12 +4,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,7 +58,13 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
                         config = successState.config,
                         rooms = successState.rooms,
                         incidentCounts = successState.incidentCounts,
-                        onSave = { viewModel.updateConfig(it) }
+                        escalatedIncidents = successState.escalatedIncidents,
+                        users = successState.users,
+                        onSave = { viewModel.updateConfig(it) },
+                        onUpdateUserRoom = { userId, newRoomId -> viewModel.updateUserRoom(userId, newRoomId) },
+                        onAddRoom = { id, name, floor -> viewModel.addRoom(id, name, floor) },
+                        onDeleteRoom = { roomId -> viewModel.deleteRoom(roomId) },
+                        onEditRoom = { id, name, floor -> viewModel.updateRoom(id, name, floor) }
                     )
                 }
             }
@@ -62,24 +72,270 @@ fun AdminScreen(viewModel: AdminViewModel = viewModel()) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminContent(
     config: BuildingConfig,
     rooms: List<Room> = emptyList(),
     incidentCounts: Map<String, Int> = emptyMap(),
-    onSave: (BuildingConfig) -> Unit
+    escalatedIncidents: List<com.echoease.app.data.model.ConfirmedIncident> = emptyList(),
+    users: List<com.echoease.app.data.model.UserProfile> = emptyList(),
+    onSave: (BuildingConfig) -> Unit,
+    onUpdateUserRoom: (String, String) -> Unit,
+    onAddRoom: (String, String, Int) -> Unit,
+    onDeleteRoom: (String) -> Unit,
+    onEditRoom: (String, String, Int) -> Unit
 ) {
     var threshold by remember { mutableIntStateOf(config.consensusThreshold) }
     var wardenThreshold by remember { mutableIntStateOf(config.escalationTiers.lastOrNull() ?: 4) }
     var wardenContact by remember { mutableStateOf(config.wardenContact) }
+    var showAddRoomDialog by remember { mutableStateOf(false) }
+    var editingRoom by remember { mutableStateOf<Room?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
+        Text("Admin Dashboard", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- BUILDING STRUCTURE (ROOMS) ---
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Building Structure", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showAddRoomDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add Room")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Room")
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("ID", modifier = Modifier.weight(0.5f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text("Name", modifier = Modifier.weight(1.5f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text("Floor", modifier = Modifier.weight(0.5f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text("Action", modifier = Modifier.weight(0.5f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End)
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                
+                if (rooms.isEmpty()) {
+                    Text("No rooms configured.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.outline)
+                } else {
+                    rooms.forEach { room ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(room.id, modifier = Modifier.weight(0.5f))
+                            Text(room.name?.takeIf { it.isNotBlank() } ?: "-", modifier = Modifier.weight(1.5f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(room.floor?.toString() ?: "-", modifier = Modifier.weight(0.5f))
+                            Box(modifier = Modifier.weight(0.5f), contentAlignment = Alignment.CenterEnd) {
+                                Row {
+                                    IconButton(onClick = { editingRoom = room }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit Room", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                    IconButton(onClick = { onDeleteRoom(room.id) }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete Room", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                        if (room != rooms.last()) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAddRoomDialog) {
+            var newRoomId by remember { mutableStateOf("") }
+            var newRoomName by remember { mutableStateOf("") }
+            var newRoomFloor by remember { mutableStateOf("") }
+            
+            AlertDialog(
+                onDismissRequest = { showAddRoomDialog = false },
+                title = { Text("Add New Room") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = newRoomId,
+                            onValueChange = { newRoomId = it },
+                            label = { Text("Room ID (e.g. 501)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = newRoomName,
+                            onValueChange = { newRoomName = it },
+                            label = { Text("Custom Name (Optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var expandedFloor by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = expandedFloor,
+                            onExpandedChange = { expandedFloor = it }
+                        ) {
+                            OutlinedTextField(
+                                value = newRoomFloor,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Floor Number") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedFloor)
+                                },
+                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth().menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedFloor,
+                                onDismissRequest = { expandedFloor = false }
+                            ) {
+                                for (i in 1..6) {
+                                    DropdownMenuItem(
+                                        text = { Text("Floor $i") },
+                                        onClick = {
+                                            newRoomFloor = i.toString()
+                                            expandedFloor = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val floorInt = newRoomFloor.toIntOrNull() ?: 0
+                        if (newRoomId.isNotBlank()) {
+                            onAddRoom(newRoomId, newRoomName, floorInt)
+                            showAddRoomDialog = false
+                        }
+                    }) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddRoomDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (editingRoom != null) {
+            var editRoomName by remember(editingRoom) { mutableStateOf(editingRoom?.name ?: "") }
+            var editRoomFloor by remember(editingRoom) { mutableStateOf(editingRoom?.floor?.toString() ?: "") }
+            
+            AlertDialog(
+                onDismissRequest = { editingRoom = null },
+                title = { Text("Edit Room ${editingRoom?.id}") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = editRoomName,
+                            onValueChange = { editRoomName = it },
+                            label = { Text("Custom Name (Optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        var expandedEditFloor by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = expandedEditFloor,
+                            onExpandedChange = { expandedEditFloor = it }
+                        ) {
+                            OutlinedTextField(
+                                value = editRoomFloor,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Floor Number") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedEditFloor)
+                                },
+                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                                modifier = Modifier.fillMaxWidth().menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedEditFloor,
+                                onDismissRequest = { expandedEditFloor = false }
+                            ) {
+                                for (i in 1..6) {
+                                    DropdownMenuItem(
+                                        text = { Text("Floor $i") },
+                                        onClick = {
+                                            editRoomFloor = i.toString()
+                                            expandedEditFloor = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val floorInt = editRoomFloor.toIntOrNull() ?: 0
+                        editingRoom?.id?.let { roomId ->
+                            onEditRoom(roomId, editRoomName, floorInt)
+                        }
+                        editingRoom = null
+                    }) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingRoom = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // --- BUILDING CONFIGURATION ---
+        Text("Building Configuration", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        if (escalatedIncidents.isEmpty()) {
+            Text(
+                text = "No escalated incidents requiring attention.", 
+                style = MaterialTheme.typography.bodyMedium, 
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            escalatedIncidents.forEach { incident ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), 
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Action Required for Room ${incident.roomId}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("Repeated offender: Severity ${incident.severity}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("Last Incident: ${java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(incident.timestamp))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        HorizontalDivider(modifier = Modifier.padding(bottom = 32.dp))
+
         Text(
             text = "Mediation Tuning",
             style = MaterialTheme.typography.headlineSmall,
@@ -187,6 +443,85 @@ fun AdminContent(
             Spacer(modifier = Modifier.width(8.dp))
             Text("SAVE CONFIGURATION")
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        HorizontalDivider(modifier = Modifier.padding(bottom = 32.dp))
+
+        Text(
+            text = "Resident Management",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (users.isEmpty()) {
+            Text("No residents found in this building.", color = MaterialTheme.colorScheme.outline)
+        } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Table Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Resident", modifier = Modifier.weight(1.5f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Room", modifier = Modifier.weight(0.8f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Action", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    
+                    users.forEach { user ->
+                        var showRoomDropdown by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1.5f)) {
+                                val displayName = user.name?.takeIf { it.isNotBlank() } ?: user.email ?: "Resident"
+                                Text(displayName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                if (user.role == "admin") {
+                                    Text("Admin", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Text(
+                                text = user.roomId.takeIf { !it.isNullOrEmpty() } ?: "None", 
+                                modifier = Modifier.weight(0.8f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                                TextButton(
+                                    onClick = { showRoomDropdown = true },
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Text("Edit Room")
+                                }
+                                DropdownMenu(
+                                    expanded = showRoomDropdown,
+                                    onDismissRequest = { showRoomDropdown = false }
+                                ) {
+                                    rooms.forEach { room ->
+                                        DropdownMenuItem(
+                                            text = { Text("Room ${room.id}") },
+                                            onClick = {
+                                                showRoomDropdown = false
+                                                onUpdateUserRoom(user.uid, room.id)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (user != users.last()) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -200,7 +535,11 @@ fun AdminContentPreview() {
                 escalationTiers = listOf(2, 3, 5),
                 wardenContact = "manager@echoease.com"
             ),
-            onSave = {}
+            onSave = {},
+            onUpdateUserRoom = { _, _ -> },
+            onAddRoom = { _, _, _ -> },
+            onDeleteRoom = { _ -> },
+            onEditRoom = { _, _, _ -> }
         )
     }
 }

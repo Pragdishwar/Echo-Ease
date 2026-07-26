@@ -1,13 +1,13 @@
 package com.echoease.app.data.model
 
-import com.google.firebase.Timestamp
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 @Serializable
 data class NoiseFlag(
-    val flaggerRoomId: String = "",
+    @SerialName("flagger_room_id") val flaggerRoomId: String = "",
     val timestamp: Long = 0L,
-    val timeWindow: Long = 0L
+    @SerialName("time_window") val timeWindow: Long = 0L
 )
 
 data class RoomAdjacency(

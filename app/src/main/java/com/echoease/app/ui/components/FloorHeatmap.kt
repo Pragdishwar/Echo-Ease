@@ -62,9 +62,14 @@ fun FloorHeatmap(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = room.name,
+                            text = room.name ?: "Unknown",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Floor ${room.floor ?: '-'}",
+                            style = MaterialTheme.typography.labelExtraSmall.copy(fontSize = 8.sp),
+                            color = Color.Gray
                         )
                         Text(
                             text = if (count > 0) "$count 🔥" else "Peaceful",

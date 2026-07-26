@@ -20,12 +20,16 @@ import com.echoease.app.util.AppConstants
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuildingSelectionScreen(
-    onBuildingSelected: () -> Unit,
+    onBuildingSelected: (String) -> Unit,
     viewModel: OnboardingViewModel = viewModel()
 ) {
     val buildings by viewModel.buildings.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showHelp by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.reset()
+    }
 
     Scaffold(
         topBar = {
@@ -73,7 +77,7 @@ fun BuildingSelectionScreen(
                             leadingContent = { Icon(Icons.Default.LocationOn, null) },
                             modifier = Modifier.clickable {
                                 viewModel.selectBuilding(building.id)
-                                onBuildingSelected()
+                                onBuildingSelected(building.id)
                             }
                         )
                         HorizontalDivider()
@@ -93,7 +97,7 @@ fun BuildingSelectionScreen(
                         TextButton(onClick = {
                             AppConstants.USE_MOCK_DATA = true
                             showHelp = false
-                            onBuildingSelected() // Refresh or navigate
+                            onBuildingSelected("default_building") // Refresh or navigate
                         }) {
                             Text("Enable Demo Mode")
                         }

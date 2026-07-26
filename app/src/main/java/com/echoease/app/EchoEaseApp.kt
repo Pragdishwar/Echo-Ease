@@ -10,11 +10,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.launchIn
+import com.echoease.app.data.SupabaseClient
 import com.echoease.app.data.repository.RoomRepository
 import com.echoease.app.ui.admin.AdminScreen
 import com.echoease.app.ui.dashboard.DashboardScreen
@@ -24,94 +29,90 @@ import com.echoease.app.ui.onboarding.AuthScreen
 import com.echoease.app.ui.onboarding.BuildingSelectionScreen
 import com.echoease.app.ui.onboarding.RoomSelectionScreen
 import com.echoease.app.ui.theme.MyApplicationTheme
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import java.util.Date
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun EchoEaseApp() {
-    val isFirebaseAvailable = remember {
-        try {
-            FirebaseAuth.getInstance()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
     MyApplicationTheme {
-        if (!isFirebaseAvailable) {
-            FirebaseSetupRequiredScreen()
-        } else {
-            MainContent()
-        }
+        MainContent()
     }
 }
 
 @Composable
 fun MainContent() {
-    val auth = FirebaseAuth.getInstance()
-    val initialScreen: Screen = if (auth.currentUser == null) {
+    val auth = SupabaseClient.client.auth
+    val sessionStatus by auth.sessionStatus.collectAsState(initial = SessionStatus.Initializing)
+    
+    val initialScreen: Screen = if (auth.currentUserOrNull() == null) {
         Screen.Auth
     } else {
         Screen.Home
     }
     
-    val backStack = remember { mutableStateListOf<Screen>(initialScreen) }
+    val backStack = remember { mutableStateListOf(initialScreen) }
     val currentScreen = backStack.lastOrNull()
+    
     var userRole by remember { mutableStateOf("resident") }
     var userRoomId by remember { mutableStateOf<String?>(null) }
-    var userBuildingId by remember { mutableStateOf<String?>(null) }
     var activeNudge by remember { mutableStateOf<String?>(null) }
-
-    // DEBUG LOGGING FOR AUTH STATE
-    LaunchedEffect(auth.currentUser) {
-        android.util.Log.d("EchoEaseApp", "Auth State Changed: User=${auth.currentUser?.email}, Screen=$currentScreen")
-    }
 
     // AUTH PERSISTENCE LISTENER
     LaunchedEffect(auth) {
-        auth.addAuthStateListener { firebaseAuth ->
-            val user = firebaseAuth.currentUser
+        auth.sessionStatus.collectLatest { status ->
             val current = backStack.lastOrNull()
-            
-            android.util.Log.d("EchoEaseApp", "Listener Triggered: User=${user?.email}, CurrentScreen=$current")
-            
-            if (user != null && current is Screen.Auth) {
-                android.util.Log.d("EchoEaseApp", "Navigating to Home via Listener")
+            if (status is SessionStatus.Authenticated && current is Screen.Auth) {
                 backStack.clear()
                 backStack.add(Screen.Home)
+            } else if (status is SessionStatus.NotAuthenticated && current !is Screen.Auth) {
+                backStack.clear()
+                backStack.add(Screen.Auth)
             }
         }
     }
 
-    LaunchedEffect(auth.currentUser) {
-        auth.currentUser?.uid?.let { uid ->
-            val repository = RoomRepository()
-            val profile = repository.getUserProfile(uid)
-            userRole = profile?.role ?: "resident"
-            userRoomId = profile?.roomId
-            
-            // AUTO-REDIRECT IF ROOM IS NOT SET
-            if (profile?.roomId.isNullOrEmpty() && currentScreen !is Screen.BuildingSelection && currentScreen !is Screen.RoomSelection) {
-                backStack.clear()
-                backStack.add(Screen.BuildingSelection)
+    LaunchedEffect(sessionStatus, currentScreen) {
+        if (sessionStatus is SessionStatus.Authenticated) {
+            val user = auth.currentUserOrNull()
+            if (user != null) {
+                val repository = RoomRepository()
+                val profile = repository.getUserProfile(user.id)
+                userRole = profile?.role ?: "resident"
+                userRoomId = profile?.roomId
+                
+                // AUTO-REDIRECT IF ROOM IS NOT SET
+                if (profile == null || (profile.roomId.isNullOrEmpty() && currentScreen !is Screen.BuildingSelection && currentScreen !is Screen.RoomSelection)) {
+                    if (currentScreen !is Screen.BuildingSelection && currentScreen !is Screen.RoomSelection) {
+                        backStack.clear()
+                        backStack.add(Screen.BuildingSelection)
+                    }
+                }
             }
         }
     }
 
     // REAL-TIME NUDGE LISTENER
     LaunchedEffect(userRoomId) {
-        if (userRoomId != null) {
-            val db = FirebaseFirestore.getInstance()
-            db.collection("confirmedIncidents")
-                .whereEqualTo("roomId", userRoomId)
-                .whereGreaterThan("timestamp", com.google.firebase.Timestamp(Date(System.currentTimeMillis() - 600000))) // Last 10 mins
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        activeNudge = "Community Notice: Multiple neighbors have flagged noise in your sector. Please keep it down. 🤫"
-                    }
-                }
+        val roomId = userRoomId
+        if (roomId != null) {
+            val channel = SupabaseClient.client.realtime.channel("app-nudges")
+            val changes = channel.postgresChangeFlow<PostgresAction.Insert>("public") {
+                table = "confirmed_incidents"
+                filter("room_id", FilterOperator.EQ, roomId)
+            }
+            
+            changes.collectLatest {
+                activeNudge = "Community Notice: Multiple neighbors have flagged noise in your sector. Please keep it down. \uD83E\uDD2B"
+            }
+            
+            try {
+                SupabaseClient.client.realtime.connect()
+                channel.subscribe()
+            } catch(e: Exception) {
+                android.util.Log.e("EchoEaseApp", "Realtime error", e)
+            }
         }
     }
 
@@ -142,6 +143,17 @@ fun MainContent() {
                         },
                         icon = { Icon(Icons.Default.Assessment, contentDescription = "Dashboard") },
                         label = { Text("Status") }
+                    )
+                    item(
+                        selected = currentScreen is Screen.Profile,
+                        onClick = { 
+                            if (currentScreen !is Screen.Profile) {
+                                backStack.clear()
+                                backStack.add(Screen.Profile)
+                            }
+                        },
+                        icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
+                        label = { Text("Profile") }
                     )
                     if (userRole == "admin") {
                         item(
@@ -211,15 +223,18 @@ fun AppNavHost(backStack: SnapshotStateList<Screen>) {
                     })
                 }
                 is Screen.BuildingSelection -> NavEntry(key) {
-                    BuildingSelectionScreen(onBuildingSelected = {
-                        backStack.add(Screen.RoomSelection)
+                    BuildingSelectionScreen(onBuildingSelected = { buildingId ->
+                        backStack.add(Screen.RoomSelection(buildingId))
                     })
                 }
                 is Screen.RoomSelection -> NavEntry(key) {
-                    RoomSelectionScreen(onRoomSelected = { 
-                        backStack.clear()
-                        backStack.add(Screen.Home) 
-                    })
+                    RoomSelectionScreen(
+                        buildingId = key.buildingId,
+                        onRoomSelected = { 
+                            backStack.clear()
+                            backStack.add(Screen.Home) 
+                        }
+                    )
                 }
                 is Screen.Home -> NavEntry(key) {
                     HomeScreen(
@@ -239,6 +254,17 @@ fun AppNavHost(backStack: SnapshotStateList<Screen>) {
                 is Screen.Dashboard -> NavEntry(key) {
                     DashboardScreen()
                 }
+                is Screen.Profile -> NavEntry(key) {
+                    com.echoease.app.ui.profile.ProfileScreen(
+                        onNavigateToOnboarding = {
+                            backStack.add(Screen.BuildingSelection)
+                        },
+                        onLogout = {
+                            backStack.clear()
+                            backStack.add(Screen.Auth)
+                        }
+                    )
+                }
                 is Screen.Admin -> NavEntry(key) {
                     AdminScreen()
                 }
@@ -250,43 +276,4 @@ fun AppNavHost(backStack: SnapshotStateList<Screen>) {
             }
         }
     )
-}
-
-@Composable
-fun FirebaseSetupRequiredScreen() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Default.Settings,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.error
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                "Firebase Configuration Missing",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                "To make this app work, you MUST add your 'google-services.json' file from the Firebase Console to the 'app/' folder.",
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                "Once the file is added, the app will automatically connect to your live database and authentication service.",
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.outline
-            )
-        }
-    }
 }
