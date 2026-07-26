@@ -24,6 +24,7 @@ fun ProfileScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     var nameInput by remember(userProfile) { mutableStateOf(userProfile?.name ?: "") }
     var isSaving by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     LaunchedEffect(Unit) {
         viewModel.loadProfile()
@@ -65,7 +66,9 @@ fun ProfileScreen(
                         onValueChange = { nameInput = it },
                         label = { Text("Display Name") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { focusManager.clearFocus() })
                     )
                     
                     Spacer(modifier = Modifier.height(8.dp))
@@ -76,6 +79,7 @@ fun ProfileScreen(
                     
                     Button(
                         onClick = {
+                            focusManager.clearFocus()
                             isSaving = true
                             viewModel.updateName(nameInput)
                             isSaving = false
