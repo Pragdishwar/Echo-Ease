@@ -378,11 +378,24 @@ fun MenuButton(
     isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by androidx.compose.foundation.interaction.collectIsPressedAsState(interactionSource)
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f, 
+        label = "button_scale",
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+        )
+    )
+
     Button(
         onClick = onClick,
+        interactionSource = interactionSource,
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp), // Shrank from 64dp
+            .height(56.dp)
+            .androidx.compose.ui.draw.scale(scale), // Shrank from 64dp
         shape = MaterialTheme.shapes.large,
         colors = if (isPrimary) {
             ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

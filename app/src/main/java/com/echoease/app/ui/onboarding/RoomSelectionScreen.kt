@@ -109,6 +109,7 @@ fun RoomSelectionScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(1f)
+                                            .androidx.compose.animation.animateContentSize()
                                             .clickable { viewModel.selectRoom(room.id) },
                                         shape = RoundedCornerShape(16.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
