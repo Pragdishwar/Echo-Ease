@@ -1,26 +1,21 @@
 package com.echoease.app.ui.onboarding
 
 import android.app.Activity
-import android.content.Context
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import android.util.Log
@@ -33,9 +28,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(onAuthenticated: () -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var isSignUp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val isPreview = LocalInspectionMode.current
     val auth = remember { if (isPreview) null else FirebaseAuth.getInstance() }
     val context = LocalContext.current
@@ -43,32 +40,25 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        Log.d("AuthScreen", "Google Sign-In Result: ${result.resultCode}")
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
-                Log.d("AuthScreen", "Google account retrieved: ${account.email}")
                 val credential = GoogleAuthProvider.getCredential(account.idToken, null)
                 auth?.signInWithCredential(credential)?.addOnCompleteListener { signInTask ->
                     isLoading = false
                     if (signInTask.isSuccessful) {
-                        Log.d("AuthScreen", "Firebase sign-in successful")
                         onAuthenticated()
                     } else {
-                        val msg = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
-                        Log.e("AuthScreen", "Firebase sign-in failed: $msg")
-                        error = msg
+                        error = signInTask.exception?.localizedMessage ?: "Google Sign-In failed."
                     }
                 }
             } catch (e: ApiException) {
                 isLoading = false
-                Log.e("AuthScreen", "Google Sign-In failed API: ${e.statusCode}")
                 error = "Google Sign-In failed: ${e.message}"
             }
         } else {
             isLoading = false
-            Log.w("AuthScreen", "Google Sign-In cancelled or failed")
         }
     }
 
@@ -96,7 +86,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 color = MaterialTheme.colorScheme.secondary
             )
 
-            Spacer(modifier = Modifier.height(80.dp))
+            Spacer(modifier = Modifier.height(48.dp))
 
             if (error != null) {
                 Card(
@@ -112,13 +102,69 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 }
             }
 
-            // GOOGLE SIGN IN BUTTON
+            // EMAIL FIELDS (RESTORED AS BACKUP)
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // MAIN EMAIL LOGIN BUTTON
             Button(
                 onClick = {
-                    if (isPreview) {
-                        onAuthenticated()
+                    if (email.isBlank() || password.isBlank()) {
+                        error = "Enter email and password"
                         return@Button
                     }
+                    isLoading = true
+                    error = null
+                    if (isSignUp) {
+                        auth?.createUserWithEmailAndPassword(email.trim(), password)?.addOnCompleteListener { task ->
+                            isLoading = false
+                            if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
+                        }
+                    } else {
+                        auth?.signInWithEmailAndPassword(email.trim(), password)?.addOnCompleteListener { task ->
+                            isLoading = false
+                            if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                enabled = !isLoading,
+                shape = MaterialTheme.shapes.large
+            ) {
+                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                else Text(if (isSignUp) "Create Account" else "Login")
+            }
+
+            TextButton(onClick = { isSignUp = !isSignUp }) {
+                Text(if (isSignUp) "Already have an account? Login" else "New here? Sign Up")
+            }
+
+            Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+            // GOOGLE SIGN IN BUTTON
+            OutlinedButton(
+                onClick = {
                     isLoading = true
                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                         .requestIdToken(context.getString(com.echoease.app.R.string.default_web_client_id))
@@ -127,77 +173,33 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                     val googleSignInClient = GoogleSignIn.getClient(context, gso)
                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                enabled = !isLoading,
-                shape = MaterialTheme.shapes.large,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Using a simple person icon as a placeholder for Google icon
-                        Icon(Icons.Default.Person, contentDescription = null)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Continue with Google", style = MaterialTheme.typography.titleMedium)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // GUEST SIGN IN BUTTON
-            OutlinedButton(
-                onClick = {
-                    if (auth == null) {
-                        if (isPreview) onAuthenticated()
-                        return@OutlinedButton
-                    }
-                    isLoading = true
-                    error = null
-                    auth.signInAnonymously().addOnCompleteListener { task ->
-                        isLoading = false
-                        if (task.isSuccessful) {
-                            onAuthenticated()
-                        } else {
-                            error = "Guest login failed: ${task.exception?.localizedMessage}"
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
                 enabled = !isLoading,
                 shape = MaterialTheme.shapes.large
             ) {
-                Text("Continue as Guest", style = MaterialTheme.typography.titleMedium)
-            }
-
-            // RECOVERY BUTTON: Force Enter if Auth is already successful in background
-            if (auth?.currentUser != null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = { onAuthenticated() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-                ) {
-                    Text("Session Ready: Enter App", style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Person, contentDescription = null)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Continue with Google")
                 }
             }
-            
-            Spacer(modifier = Modifier.height(48.dp))
-            
-            Text(
-                "Secure, private, and peer-to-peer.\nBy continuing, you agree to building peace.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // GUEST SIGN IN BUTTON
+            TextButton(
+                onClick = {
+                    isLoading = true
+                    auth?.signInAnonymously()?.addOnCompleteListener { task ->
+                        isLoading = false
+                        if (task.isSuccessful) onAuthenticated() else error = task.exception?.localizedMessage
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) {
+                Text("Continue as Guest", color = MaterialTheme.colorScheme.outline)
+            }
         }
     }
 }
